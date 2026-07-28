@@ -3,6 +3,11 @@
  * Web Audio piano + toggleable Warmups & Harmony finder
  */
 
+import {
+  setVectorLabel,
+  setVectorBody,
+} from "./vector-label.js";
+
 const NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
 const SOLFEGE = ["Do", "Di", "Re", "Ri", "Mi", "Fa", "Fi", "Sol", "Si", "La", "Li", "Ti"];
 
@@ -239,7 +244,7 @@ function renderPiano() {
 
   const whiteMidis = whiteMidiList();
   const endLabel = noteLabel(whiteMidis[whiteMidis.length - 1]);
-  $("octave-label").textContent = `${noteLabel(whiteMidis[0])} – ${endLabel}`;
+  setVectorLabel($("octave-label"), `${noteLabel(whiteMidis[0])} – ${endLabel}`, "octave");
 
   whiteMidis.forEach((midi, i) => {
     const btn = document.createElement("button");
@@ -249,7 +254,8 @@ function renderPiano() {
     btn.setAttribute("aria-label", noteLabel(midi));
     const label = document.createElement("span");
     label.className = "key-label";
-    label.textContent = NOTE_NAMES[midi % 12];
+    label.setAttribute("aria-hidden", "true");
+    setVectorLabel(label, NOTE_NAMES[midi % 12], "key");
     btn.appendChild(label);
     whites.appendChild(btn);
 
@@ -331,12 +337,14 @@ function bindPianoPointers(piano) {
 }
 
 function updateNowPlaying(midi) {
-  $("np-note").textContent = noteLabel(midi);
+  setVectorLabel($("np-note"), noteLabel(midi), "display");
   const root = state.mode === "warmup" ? state.warmupRoot : state.harmonyRoot;
-  $("np-solfege").textContent = solfegeFromRoot(midi, root);
-  $("now-playing").querySelector(".np-label").textContent =
+  setVectorLabel($("np-solfege"), solfegeFromRoot(midi, root), "solfege");
+  const label =
     state.mode === "warmup" && state.vowel ? `Sing “${state.vowel}”` : "Now sounding";
+  setVectorLabel($("np-label"), label.toUpperCase(), "npLabel");
 }
+
 
 function clearGuides() {
   document.querySelectorAll(".piano [data-midi]").forEach((el) => {
@@ -416,7 +424,7 @@ function playSyncChord(rootMidi) {
     document.querySelector(`.piano [data-midi="${m}"]`)?.classList.add("active");
   }
   updateNowPlaying(rootMidi);
-  $("np-solfege").textContent = "chord";
+  setVectorLabel($("np-solfege"), "chord", "solfege");
 }
 
 function releaseSyncChord(rootMidi, immediate = false) {
@@ -447,12 +455,18 @@ function handleWarmupKey(midi) {
     $("warmup-demo").disabled = false;
     $("warmup-reset").disabled = false;
     const ex = EXERCISES[state.exercise];
-    $("warmup-title").textContent = `${ex.name} from ${noteLabel(midi)}`;
+    setVectorLabel($("warmup-title"), `${ex.name} from ${noteLabel(midi)}`, "title");
     if (state.warmupStep === 0) {
-      $("warmup-body").textContent = `${ex.desc} Vowel: ${state.vowel.toUpperCase()}. Follow the bright key.`;
+      setVectorBody(
+        $("warmup-body"),
+        `${ex.desc} Vowel: ${state.vowel.toUpperCase()}. Follow the bright key.`
+      );
     } else {
       const next = state.warmupRoot + pattern[state.warmupStep];
-      $("warmup-body").textContent = `Next: ${noteLabel(next)} (${solfegeFromRoot(next, state.warmupRoot)}) · ${state.vowel.toUpperCase()}`;
+      setVectorBody(
+        $("warmup-body"),
+        `Next: ${noteLabel(next)} (${solfegeFromRoot(next, state.warmupRoot)}) · ${state.vowel.toUpperCase()}`
+      );
     }
     refreshGuides();
     return;
@@ -463,14 +477,20 @@ function handleWarmupKey(midi) {
   if (midi === expected) {
     state.warmupStep += 1;
     if (state.warmupStep >= pattern.length) {
-      $("warmup-title").textContent = "Set complete";
-      $("warmup-body").textContent = "Nice. Reset for another starting pitch, or pick a new exercise.";
+      setVectorLabel($("warmup-title"), "Set complete", "title");
+      setVectorBody(
+        $("warmup-body"),
+        "Nice. Reset for another starting pitch, or pick a new exercise."
+      );
       state.warmupStep = 0;
       // brief celebrate — replay root softly
       setTimeout(() => playNote(state.warmupRoot, { duration: 0.5, velocity: 0.5 }), 120);
     } else {
       const next = state.warmupRoot + pattern[state.warmupStep];
-      $("warmup-body").textContent = `Next: ${noteLabel(next)} (${solfegeFromRoot(next, state.warmupRoot)}) · ${state.vowel.toUpperCase()}`;
+      setVectorBody(
+        $("warmup-body"),
+        `Next: ${noteLabel(next)} (${solfegeFromRoot(next, state.warmupRoot)}) · ${state.vowel.toUpperCase()}`
+      );
     }
     refreshGuides();
   }
@@ -482,10 +502,8 @@ function resetWarmup(keepExercise = true) {
   state.warmupActive = false;
   $("warmup-demo").disabled = true;
   $("warmup-reset").disabled = true;
-  $("warmup-title").textContent = "Choose a root";
-  $("warmup-body").textContent = keepExercise
-    ? "Tap any key to set your starting pitch."
-    : "Tap any key to set your starting pitch.";
+  setVectorLabel($("warmup-title"), "Choose a root", "title");
+  setVectorBody($("warmup-body"), "Tap any key to set your starting pitch.");
   refreshGuides();
 }
 
@@ -504,7 +522,7 @@ async function demoWarmup() {
   state.warmupStep = 0;
   refreshGuides();
   $("warmup-demo").disabled = false;
-  $("warmup-body").textContent = "Your turn — follow the bright key.";
+  setVectorBody($("warmup-body"), "Your turn — follow the bright key.");
 }
 
 function sleep(ms) {
@@ -556,13 +574,15 @@ function getHarmonyTones(rootMidi) {
 
 function updateHarmonyBodyHint() {
   if (state.syncPlay) {
-    $("harmony-body").textContent = "Each key plays the full harmony together. Lift to release.";
+    setVectorBody($("harmony-body"), "Each key plays the full harmony together. Lift to release.");
     return;
   }
-  $("harmony-body").textContent =
+  setVectorBody(
+    $("harmony-body"),
     state.voicing === "satb"
       ? "SATB parts highlighted — tap Hear chord to stack them."
-      : "Chord tones highlighted on the keys.";
+      : "Chord tones highlighted on the keys."
+  );
 }
 
 function handleHarmonyKey(midi) {
@@ -571,19 +591,37 @@ function handleHarmonyKey(midi) {
   $("harmony-clear").disabled = false;
   const q = state.quality;
   const tones = getHarmonyTones(midi);
-  $("harmony-title").textContent = `${noteLabel(midi)} ${q === "dom7" ? "7" : q === "sus4" ? "sus4" : q}`;
+  setVectorLabel(
+    $("harmony-title"),
+    `${noteLabel(midi)} ${q === "dom7" ? "7" : q === "sus4" ? "sus4" : q}`,
+    "title"
+  );
   updateHarmonyBodyHint();
 
   const list = $("part-list");
   list.hidden = false;
-  list.innerHTML = tones
-    .map((t, i) => {
-      const color = ["var(--guide-root)", "var(--guide-third)", "var(--guide-fifth)", "var(--guide-seventh)"][
-        Math.min(i, 3)
-      ];
-      return `<li><span class="part-name"><span class="swatch" style="background:${color}"></span>${t.part}</span><span class="part-note">${noteLabel(t.midi)} · ${t.role}</span></li>`;
-    })
-    .join("");
+  list.innerHTML = "";
+  tones.forEach((t, i) => {
+    const color = ["var(--guide-root)", "var(--guide-third)", "var(--guide-fifth)", "var(--guide-seventh)"][
+      Math.min(i, 3)
+    ];
+    const li = document.createElement("li");
+    const name = document.createElement("span");
+    name.className = "part-name";
+    const swatch = document.createElement("span");
+    swatch.className = "swatch";
+    swatch.style.background = color;
+    name.appendChild(swatch);
+    const nameLabel = document.createElement("span");
+    setVectorLabel(nameLabel, t.part.toUpperCase(), "partName");
+    name.appendChild(nameLabel);
+    const note = document.createElement("span");
+    note.className = "part-note";
+    setVectorLabel(note, `${noteLabel(t.midi)} · ${t.role}`, "partNote");
+    li.appendChild(name);
+    li.appendChild(note);
+    list.appendChild(li);
+  });
   refreshGuides();
 }
 
@@ -592,10 +630,13 @@ function clearHarmony() {
   state.harmonyRoot = null;
   $("harmony-hear").disabled = true;
   $("harmony-clear").disabled = true;
-  $("harmony-title").textContent = "Play a root";
-  $("harmony-body").textContent = state.syncPlay
-    ? "Tap any key — the full chord sounds with it."
-    : "Highlighted keys are your harmony parts.";
+  setVectorLabel($("harmony-title"), "Play a root", "title");
+  setVectorBody(
+    $("harmony-body"),
+    state.syncPlay
+      ? "Tap any key — the full chord sounds with it."
+      : "Highlighted keys are your harmony parts."
+  );
   $("part-list").hidden = true;
   $("part-list").innerHTML = "";
   refreshGuides();
@@ -648,7 +689,7 @@ function setMode(mode) {
   }
 
   if (next === "warmup" && state.warmupRoot == null) {
-    $("warmup-title").textContent = "Choose a root";
+    setVectorLabel($("warmup-title"), "Choose a root", "title");
   }
   if (next === "harmony" && state.harmonyRoot == null) {
     clearHarmony();
@@ -701,8 +742,8 @@ function bindUI() {
       if (state.warmupRoot != null) {
         state.warmupStep = 0;
         const ex = EXERCISES[state.exercise];
-        $("warmup-title").textContent = `${ex.name} from ${noteLabel(state.warmupRoot)}`;
-        $("warmup-body").textContent = ex.desc;
+        setVectorLabel($("warmup-title"), `${ex.name} from ${noteLabel(state.warmupRoot)}`, "title");
+        setVectorBody($("warmup-body"), ex.desc);
         refreshGuides();
       }
     });
@@ -714,9 +755,12 @@ function bindUI() {
       chip.classList.add("active");
       state.vowel = chip.dataset.vowel;
       if (state.warmupRoot != null) {
-        $("warmup-body").textContent = `${EXERCISES[state.exercise].desc} Vowel: ${state.vowel.toUpperCase()}.`;
+        setVectorBody(
+          $("warmup-body"),
+          `${EXERCISES[state.exercise].desc} Vowel: ${state.vowel.toUpperCase()}.`
+        );
       }
-      $("now-playing").querySelector(".np-label").textContent = `Sing “${state.vowel}”`;
+      setVectorLabel($("np-label"), `SING “${state.vowel.toUpperCase()}”`, "npLabel");
     });
   });
 
@@ -760,18 +804,65 @@ function bindUI() {
     }
     if (state.harmonyRoot != null) updateHarmonyBodyHint();
     else {
-      $("harmony-body").textContent = state.syncPlay
-        ? "Tap any key — the full chord sounds with it."
-        : "Highlighted keys are your harmony parts.";
+      setVectorBody(
+        $("harmony-body"),
+        state.syncPlay
+          ? "Tap any key — the full chord sounds with it."
+          : "Highlighted keys are your harmony parts."
+      );
     }
   });
+
+  // Block iOS text selection / Look Up / callout menus on the app shell
+  const app = $("app");
+  const block = (e) => e.preventDefault();
+  app.addEventListener("contextmenu", block);
+  app.addEventListener("selectstart", block);
+  app.addEventListener("gesturestart", block, { passive: false });
 
   // Unlock audio on first gesture
   const unlock = () => ensureAudio();
   window.addEventListener("pointerdown", unlock, { once: false });
 }
 
+function paintStaticLabels() {
+  setVectorLabel($("brand-label"), "Voix", "brand");
+  setVectorLabel($("tagline-label"), "Choir practice piano", "tagline");
+  setVectorLabel($("sustain-btn"), "PEDAL", "pedal");
+  setVectorLabel($("np-label"), "TAP A KEY", "npLabel");
+  setVectorLabel($("np-note"), "—", "display");
+  setVectorLabel($("np-solfege"), " ", "solfege");
+
+  setVectorLabel($("warmup-name"), "Warmups", "modeName");
+  setVectorLabel($("warmup-hint"), "Opening & tone sets", "modeHint");
+  setVectorLabel($("harmony-name"), "Harmony", "modeName");
+  setVectorLabel($("harmony-hint"), "Find chord tones", "modeHint");
+
+  setVectorLabel($("warmup-heading"), "Warmup set", "title");
+  setVectorLabel($("warmup-close"), "Close", "close");
+  setVectorBody($("warmup-lead"), "Play a starting pitch, then follow the highlighted path.", "body", 36);
+  setVectorLabel($("tone-field-label"), "TONE", "field");
+  setVectorLabel($("warmup-title"), "Choose a root", "title");
+  setVectorBody($("warmup-body"), "Tap any white key to set your starting pitch.");
+
+  setVectorLabel($("harmony-heading"), "Harmony finder", "title");
+  setVectorLabel($("harmony-close"), "Close", "close");
+  setVectorBody($("harmony-lead"), "Play a note — Voix highlights the chord tones around it.", "body", 36);
+  setVectorLabel($("sync-name"), "Play chord on key", "syncName");
+  setVectorLabel($("sync-hint"), "One key sounds the full harmony together", "syncHint");
+  setVectorLabel($("harmony-title"), "Play a root", "title");
+  setVectorBody($("harmony-body"), "Highlighted keys are your harmony parts.");
+
+  setVectorLabel($("audio-hint"), "Tap anywhere to unlock sound", "hint");
+
+  document.querySelectorAll("[data-label]").forEach((el) => {
+    const style = el.classList.contains("btn") ? "button" : "chip";
+    setVectorLabel(el, el.dataset.label, style);
+  });
+}
+
 function init() {
+  paintStaticLabels();
   bindUI();
   renderPiano();
 
