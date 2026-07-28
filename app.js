@@ -57,6 +57,17 @@ let masterGain = null;
 let sustainOn = false;
 const activeVoices = new Map();
 
+/** Acoustic grand piano samples (MusyngKite via jsDelivr) */
+const PIANO_SAMPLE_BASE =
+  "https://cdn.jsdelivr.net/gh/gleitz/midi-js-soundfonts@gh-pages/MusyngKite/acoustic_grand_piano-mp3/";
+const SAMPLE_FLAT_NAMES = ["C", "Db", "D", "Eb", "E", "F", "Gb", "G", "Ab", "A", "Bb", "B"];
+/** @type {Map<number, AudioBuffer>} */
+const sampleBuffers = new Map();
+/** @type {Map<number, Promise<AudioBuffer | null>>} */
+const sampleLoading = new Map();
+let pianoReady = false;
+let pianoLoadPromise = null;
+
 const state = {
   baseOctave: 3,
   whiteCount: 15, // C3–C5 inclusive = 15 white keys
@@ -91,10 +102,23 @@ function noteLabel(midi) {
   return `${name}${oct}`;
 }
 
+function soundfontNoteName(midi) {
+  const oct = Math.floor(midi / 12) - 1;
+  return `${SAMPLE_FLAT_NAMES[midi % 12]}${oct}`;
+}
+
 function solfegeFromRoot(midi, rootMidi) {
   if (rootMidi == null) return SOLFEGE[midi % 12];
   const deg = ((midi - rootMidi) % 12 + 12) % 12;
   return SOLFEGE[deg];
+}
+
+function setAudioHint(text, { hide = false } = {}) {
+  const el = $("audio-hint");
+  if (!el) return;
+  if (text) setVectorLabel(el, text, "hint");
+  else el.setAttribute("aria-label", "");
+  el.classList.toggle("hidden", hide);
 }
 
 function ensureAudio() {
@@ -102,7 +126,7 @@ function ensureAudio() {
     const Ctx = window.AudioContext || window.webkitAudioContext;
     audioCtx = new Ctx();
     masterGain = audioCtx.createGain();
-    masterGain.gain.value = 0.28;
+    masterGain.gain.value = 0.9;
     masterGain.connect(audioCtx.destination);
   }
   if (audioCtx.state === "suspended") {
@@ -110,67 +134,176 @@ function ensureAudio() {
   }
   if (!state.audioUnlocked) {
     state.audioUnlocked = true;
-    $("audio-hint")?.classList.add("hidden");
+    setAudioHint("Loading grand piano…");
+    preloadPianoSamples();
   }
 }
 
-/** Choir-friendly soft tone with slight vowel formant coloring */
+async function decodeSample(midi) {
+  if (sampleBuffers.has(midi)) return sampleBuffers.get(midi);
+  if (sampleLoading.has(midi)) return sampleLoading.get(midi);
+
+  const task = (async () => {
+    try {
+      const url = `${PIANO_SAMPLE_BASE}${soundfontNoteName(midi)}.mp3`;
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const raw = await res.arrayBuffer();
+      const buf = await audioCtx.decodeAudioData(raw.slice(0));
+      sampleBuffers.set(midi, buf);
+      return buf;
+    } catch (err) {
+      console.warn("Piano sample failed", soundfontNoteName(midi), err);
+      return null;
+    } finally {
+      sampleLoading.delete(midi);
+    }
+  })();
+
+  sampleLoading.set(midi, task);
+  return task;
+}
+
+function visibleMidiRange() {
+  const whites = whiteMidiList();
+  const lo = whites[0] - 1;
+  const hi = whites[whites.length - 1] + 1;
+  const midis = [];
+  for (let m = Math.max(21, lo); m <= Math.min(108, hi); m++) midis.push(m);
+  return midis;
+}
+
+async function preloadPianoSamples() {
+  ensureAudio();
+  const midis = visibleMidiRange();
+  // Prioritize middle of the current keyboard so the first taps sound like piano
+  const mid = midis[Math.floor(midis.length / 2)] || 60;
+  midis.sort((a, b) => Math.abs(a - mid) - Math.abs(b - mid));
+
+  const missing = midis.filter((m) => !sampleBuffers.has(m) && !sampleLoading.has(m));
+  if (missing.length === 0) {
+    if (sampleBuffers.size > 0) {
+      pianoReady = true;
+      setAudioHint("", { hide: true });
+    }
+    return;
+  }
+
+  if (!pianoReady) setAudioHint("Loading grand piano…");
+
+  const run = (async () => {
+    const batchSize = 6;
+    for (let i = 0; i < missing.length; i += batchSize) {
+      await Promise.all(missing.slice(i, i + batchSize).map((m) => decodeSample(m)));
+      if (!pianoReady && sampleBuffers.size > 0) {
+        pianoReady = true;
+        setAudioHint("Grand piano ready");
+        setTimeout(() => setAudioHint("", { hide: true }), 1200);
+      }
+    }
+    pianoReady = sampleBuffers.size > 0;
+    if (pianoReady) setAudioHint("", { hide: true });
+    else setAudioHint("Piano samples unavailable — using fallback tone");
+  })();
+
+  pianoLoadPromise = run;
+  return run;
+}
+
+function nearestLoadedSample(midi) {
+  if (sampleBuffers.has(midi)) return { midi, buffer: sampleBuffers.get(midi) };
+  let best = null;
+  let bestDist = Infinity;
+  for (const [m, buffer] of sampleBuffers) {
+    const d = Math.abs(m - midi);
+    if (d < bestDist && d <= 4) {
+      bestDist = d;
+      best = { midi: m, buffer };
+    }
+  }
+  return best;
+}
+
+/** Grand piano sample playback; mild vowel filter in warmup mode */
 function playNote(midi, { duration = null, velocity = 0.85 } = {}) {
   ensureAudio();
   const now = audioCtx.currentTime;
-  const freq = midiToFreq(midi);
-
   stopNote(midi, true);
 
-  const osc1 = audioCtx.createOscillator();
-  const osc2 = audioCtx.createOscillator();
+  const sample = nearestLoadedSample(midi);
+  if (!sample) {
+    // Kick off load and use a soft fallback until samples arrive
+    decodeSample(midi).then((buf) => {
+      if (buf && !activeVoices.has(midi)) {
+        /* next press will use sample */
+      }
+    });
+    return playFallbackTone(midi, { duration, velocity });
+  }
+
+  const source = audioCtx.createBufferSource();
+  source.buffer = sample.buffer;
+  source.playbackRate.value = Math.pow(2, (midi - sample.midi) / 12);
+
   const gain = audioCtx.createGain();
   const filter = audioCtx.createBiquadFilter();
-
-  osc1.type = "sine";
-  osc2.type = "triangle";
-  osc1.frequency.setValueAtTime(freq, now);
-  osc2.frequency.setValueAtTime(freq * 2, now);
-  osc2.detune.setValueAtTime(4, now);
-
-  // Vowel-ish formant when in warmup mode
-  const formants = {
-    ah: 750,
-    eh: 550,
-    ee: 320,
-    oh: 480,
-    oo: 360,
-  };
   filter.type = "lowpass";
-  filter.frequency.value = state.mode === "warmup" ? formants[state.vowel] * 2.2 : 2200;
-  filter.Q.value = state.mode === "warmup" ? 1.4 : 0.7;
 
-  const osc2Gain = audioCtx.createGain();
-  osc2Gain.gain.value = 0.18;
+  if (state.mode === "warmup") {
+    const formants = { ah: 2800, eh: 2400, ee: 3200, oh: 2000, oo: 1600 };
+    filter.frequency.value = formants[state.vowel] || 2600;
+    filter.Q.value = 0.7;
+  } else {
+    filter.frequency.value = 12000;
+    filter.Q.value = 0.5;
+  }
 
-  osc1.connect(filter);
-  osc2.connect(osc2Gain);
-  osc2Gain.connect(filter);
+  source.connect(filter);
   filter.connect(gain);
   gain.connect(masterGain);
 
-  const peak = 0.55 * velocity;
+  const peak = Math.min(1, 0.95 * velocity);
   gain.gain.setValueAtTime(0.0001, now);
-  gain.gain.exponentialRampToValueAtTime(peak, now + 0.025);
-  gain.gain.exponentialRampToValueAtTime(peak * 0.65, now + 0.12);
+  gain.gain.exponentialRampToValueAtTime(peak, now + 0.008);
+  gain.gain.exponentialRampToValueAtTime(peak * 0.92, now + 0.08);
 
-  osc1.start(now);
-  osc2.start(now);
+  source.start(now);
 
-  const voice = { osc1, osc2, gain, filter, release: null };
+  const voice = { source, gain, filter, release: null, isSample: true };
   activeVoices.set(midi, voice);
+
+  source.onended = () => {
+    if (activeVoices.get(midi) === voice) activeVoices.delete(midi);
+  };
 
   if (duration != null) {
     releaseNote(midi, now + duration);
-  } else if (!sustainOn) {
-    // soft natural decay for held keys handled on pointer up
   }
 
+  // Prefetch neighbors for smoother runs
+  decodeSample(midi + 1);
+  decodeSample(midi - 1);
+
+  return voice;
+}
+
+/** Soft sine fallback if samples are not loaded yet */
+function playFallbackTone(midi, { duration = null, velocity = 0.85 } = {}) {
+  const now = audioCtx.currentTime;
+  const freq = midiToFreq(midi);
+  const osc = audioCtx.createOscillator();
+  const gain = audioCtx.createGain();
+  osc.type = "triangle";
+  osc.frequency.setValueAtTime(freq, now);
+  osc.connect(gain);
+  gain.connect(masterGain);
+  const peak = 0.35 * velocity;
+  gain.gain.setValueAtTime(0.0001, now);
+  gain.gain.exponentialRampToValueAtTime(peak, now + 0.02);
+  osc.start(now);
+  const voice = { source: osc, gain, release: null, isSample: false };
+  activeVoices.set(midi, voice);
+  if (duration != null) releaseNote(midi, now + duration);
   return voice;
 }
 
@@ -180,22 +313,23 @@ function releaseNote(midi, at = null) {
   ensureAudio();
   const t = at ?? audioCtx.currentTime;
   voice.release = true;
+  const releaseSec = voice.isSample ? 0.45 : 0.35;
   try {
     voice.gain.gain.cancelScheduledValues(t);
     voice.gain.gain.setValueAtTime(Math.max(voice.gain.gain.value, 0.0001), t);
-    voice.gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.35);
+    voice.gain.gain.exponentialRampToValueAtTime(0.0001, t + releaseSec);
   } catch {
     /* ignore */
   }
+  const stopDelay = Math.ceil(releaseSec * 1000) + 40;
   setTimeout(() => {
     try {
-      voice.osc1.stop();
-      voice.osc2.stop();
+      voice.source.stop();
     } catch {
       /* ignore */
     }
     if (activeVoices.get(midi) === voice) activeVoices.delete(midi);
-  }, 450);
+  }, stopDelay);
 }
 
 function stopNote(midi, immediate = false) {
@@ -203,8 +337,7 @@ function stopNote(midi, immediate = false) {
   if (!voice) return;
   if (immediate) {
     try {
-      voice.osc1.stop();
-      voice.osc2.stop();
+      voice.source.stop();
     } catch {
       /* ignore */
     }
@@ -721,12 +854,14 @@ function bindUI() {
     if (state.baseOctave > 1) {
       state.baseOctave -= 1;
       renderPiano();
+      if (state.audioUnlocked) preloadPianoSamples();
     }
   });
   $("oct-up").addEventListener("click", () => {
     if (state.baseOctave < 5) {
       state.baseOctave += 1;
       renderPiano();
+      if (state.audioUnlocked) preloadPianoSamples();
     }
   });
 
@@ -853,7 +988,7 @@ function paintStaticLabels() {
   setVectorLabel($("harmony-title"), "Play a root", "title");
   setVectorBody($("harmony-body"), "Highlighted keys are your harmony parts.");
 
-  setVectorLabel($("audio-hint"), "Tap anywhere to unlock sound", "hint");
+  setVectorLabel($("audio-hint"), "Tap anywhere to load the grand piano", "hint");
 
   document.querySelectorAll("[data-label]").forEach((el) => {
     const style = el.classList.contains("btn") ? "button" : "chip";

@@ -1,5 +1,5 @@
 /* Minimal offline cache for Voix */
-const CACHE = "voix-v4";
+const CACHE = "voix-v5";
 const ASSETS = [
   "./",
   "./index.html",
