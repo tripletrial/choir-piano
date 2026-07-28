@@ -643,6 +643,10 @@ function setMode(mode) {
     refreshGuides();
   }
 
+  if (next !== "harmony") {
+    for (const root of [...syncHeld.keys()]) releaseSyncChord(root, true);
+  }
+
   if (next === "warmup" && state.warmupRoot == null) {
     $("warmup-title").textContent = "Choose a root";
   }
