@@ -68,7 +68,11 @@ const state = {
   quality: "major",
   voicing: "triad",
   harmonyRoot: null,
+  syncPlay: false,
 };
+
+/** @type {Map<number, number[]>} root midi → chord midis held for sync release */
+const syncHeld = new Map();
 
 const $ = (id) => document.getElementById(id);
 
@@ -373,6 +377,12 @@ function refreshGuides() {
 }
 
 function onKeyDown(midi) {
+  if (state.mode === "harmony" && state.syncPlay) {
+    handleHarmonyKey(midi);
+    playSyncChord(midi);
+    return;
+  }
+
   playNote(midi);
   updateNowPlaying(midi);
 
@@ -384,7 +394,44 @@ function onKeyDown(midi) {
 }
 
 function onKeyUp(midi) {
+  if (state.mode === "harmony" && state.syncPlay && syncHeld.has(midi)) {
+    releaseSyncChord(midi);
+    return;
+  }
   if (!sustainOn) releaseNote(midi);
+}
+
+function playSyncChord(rootMidi) {
+  // Drop any previous sync stack from another root so glissando stays clean
+  for (const prev of [...syncHeld.keys()]) {
+    if (prev !== rootMidi) releaseSyncChord(prev, true);
+  }
+
+  const tones = getHarmonyTones(rootMidi);
+  const midis = [...new Set(tones.map((t) => t.midi))];
+  syncHeld.set(rootMidi, midis);
+
+  for (const m of midis) {
+    playNote(m, { velocity: m === rootMidi ? 0.85 : 0.62 });
+    document.querySelector(`.piano [data-midi="${m}"]`)?.classList.add("active");
+  }
+  updateNowPlaying(rootMidi);
+  $("np-solfege").textContent = "chord";
+}
+
+function releaseSyncChord(rootMidi, immediate = false) {
+  const midis = syncHeld.get(rootMidi);
+  if (!midis) return;
+  syncHeld.delete(rootMidi);
+
+  for (const m of midis) {
+    document.querySelector(`.piano [data-midi="${m}"]`)?.classList.remove("active");
+    // Keep sounding if another held root still includes this tone
+    const stillNeeded = [...syncHeld.values()].some((list) => list.includes(m));
+    if (stillNeeded) continue;
+    if (immediate) stopNote(m, true);
+    else if (!sustainOn) releaseNote(m);
+  }
 }
 
 /* ---------- Warmups ---------- */
@@ -507,6 +554,17 @@ function getHarmonyTones(rootMidi) {
   ];
 }
 
+function updateHarmonyBodyHint() {
+  if (state.syncPlay) {
+    $("harmony-body").textContent = "Each key plays the full harmony together. Lift to release.";
+    return;
+  }
+  $("harmony-body").textContent =
+    state.voicing === "satb"
+      ? "SATB parts highlighted — tap Hear chord to stack them."
+      : "Chord tones highlighted on the keys.";
+}
+
 function handleHarmonyKey(midi) {
   state.harmonyRoot = midi;
   $("harmony-hear").disabled = false;
@@ -514,10 +572,7 @@ function handleHarmonyKey(midi) {
   const q = state.quality;
   const tones = getHarmonyTones(midi);
   $("harmony-title").textContent = `${noteLabel(midi)} ${q === "dom7" ? "7" : q === "sus4" ? "sus4" : q}`;
-  $("harmony-body").textContent =
-    state.voicing === "satb"
-      ? "SATB parts highlighted — tap Hear chord to stack them."
-      : "Chord tones highlighted on the keys.";
+  updateHarmonyBodyHint();
 
   const list = $("part-list");
   list.hidden = false;
@@ -533,11 +588,14 @@ function handleHarmonyKey(midi) {
 }
 
 function clearHarmony() {
+  for (const root of [...syncHeld.keys()]) releaseSyncChord(root, true);
   state.harmonyRoot = null;
   $("harmony-hear").disabled = true;
   $("harmony-clear").disabled = true;
   $("harmony-title").textContent = "Play a root";
-  $("harmony-body").textContent = "Highlighted keys are your harmony parts.";
+  $("harmony-body").textContent = state.syncPlay
+    ? "Tap any key — the full chord sounds with it."
+    : "Highlighted keys are your harmony parts.";
   $("part-list").hidden = true;
   $("part-list").innerHTML = "";
   refreshGuides();
@@ -689,6 +747,20 @@ function bindUI() {
 
   $("harmony-hear").addEventListener("click", () => hearHarmony());
   $("harmony-clear").addEventListener("click", () => clearHarmony());
+
+  $("harmony-sync-toggle").addEventListener("click", () => {
+    state.syncPlay = !state.syncPlay;
+    $("harmony-sync-toggle").setAttribute("aria-pressed", String(state.syncPlay));
+    if (!state.syncPlay) {
+      for (const root of [...syncHeld.keys()]) releaseSyncChord(root, true);
+    }
+    if (state.harmonyRoot != null) updateHarmonyBodyHint();
+    else {
+      $("harmony-body").textContent = state.syncPlay
+        ? "Tap any key — the full chord sounds with it."
+        : "Highlighted keys are your harmony parts.";
+    }
+  });
 
   // Unlock audio on first gesture
   const unlock = () => ensureAudio();
