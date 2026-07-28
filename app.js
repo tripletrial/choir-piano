@@ -80,6 +80,7 @@ const state = {
   warmupRoot: null,
   warmupStep: 0,
   warmupActive: false,
+  warmupPlaying: false,
   // harmony
   quality: "major",
   voicing: "triad",
@@ -502,10 +503,14 @@ function refreshGuides() {
   if (state.mode === "warmup" && state.warmupRoot != null) {
     const pattern = EXERCISES[state.exercise].pattern;
     const midis = pattern.map((semi) => state.warmupRoot + semi);
-    midis.forEach((m, i) => {
-      if (i === state.warmupStep) markMidi(m, "guide-next");
-      else markMidi(m, i === 0 ? "guide-root" : "guide-path");
-    });
+    if (state.warmupPlaying) {
+      midis.forEach((m, i) => {
+        if (i === state.warmupStep) markMidi(m, "guide-next");
+        else markMidi(m, i === 0 ? "guide-root" : "guide-path");
+      });
+    } else {
+      midis.forEach((m, i) => markMidi(m, i === 0 ? "guide-root" : "guide-path"));
+    }
     markMidi(state.warmupRoot, "guide-root");
   }
   if (state.mode === "harmony" && state.harmonyRoot != null) {
@@ -577,85 +582,73 @@ function releaseSyncChord(rootMidi, immediate = false) {
 
 /* ---------- Warmups ---------- */
 
+function selectWarmupRoot(midi) {
+  state.warmupRoot = midi;
+  state.warmupStep = 0;
+  state.warmupActive = true;
+  const ex = EXERCISES[state.exercise];
+  setVectorLabel($("warmup-title"), `${ex.name} from ${noteLabel(midi)}`, "title");
+  setVectorBody(
+    $("warmup-body"),
+    `Tap ${noteLabel(midi)} again to play this set · ${state.vowel.toUpperCase()}`
+  );
+  refreshGuides();
+}
+
 function handleWarmupKey(midi) {
-  if (state.warmupRoot == null) {
-    state.warmupRoot = midi;
-    const pattern = EXERCISES[state.exercise].pattern;
-    // First tap sets the root and counts as the first step when the pattern starts on 0
-    state.warmupStep = pattern[0] === 0 ? 1 : 0;
-    if (state.warmupStep >= pattern.length) state.warmupStep = 0;
-    state.warmupActive = true;
-    $("warmup-demo").disabled = false;
-    $("warmup-reset").disabled = false;
-    const ex = EXERCISES[state.exercise];
-    setVectorLabel($("warmup-title"), `${ex.name} from ${noteLabel(midi)}`, "title");
-    if (state.warmupStep === 0) {
-      setVectorBody(
-        $("warmup-body"),
-        `${ex.desc} Vowel: ${state.vowel.toUpperCase()}. Follow the bright key.`
-      );
-    } else {
-      const next = state.warmupRoot + pattern[state.warmupStep];
-      setVectorBody(
-        $("warmup-body"),
-        `Next: ${noteLabel(next)} (${solfegeFromRoot(next, state.warmupRoot)}) · ${state.vowel.toUpperCase()}`
-      );
-    }
-    refreshGuides();
+  if (state.warmupPlaying) return;
+
+  // First tap, or a different key: select / switch starting pitch
+  if (state.warmupRoot == null || midi !== state.warmupRoot) {
+    selectWarmupRoot(midi);
     return;
   }
 
-  const pattern = EXERCISES[state.exercise].pattern;
-  const expected = state.warmupRoot + pattern[state.warmupStep];
-  if (midi === expected) {
-    state.warmupStep += 1;
-    if (state.warmupStep >= pattern.length) {
-      setVectorLabel($("warmup-title"), "Set complete", "title");
-      setVectorBody(
-        $("warmup-body"),
-        "Nice. Reset for another starting pitch, or pick a new exercise."
-      );
-      state.warmupStep = 0;
-      // brief celebrate — replay root softly
-      setTimeout(() => playNote(state.warmupRoot, { duration: 0.5, velocity: 0.5 }), 120);
-    } else {
-      const next = state.warmupRoot + pattern[state.warmupStep];
-      setVectorBody(
-        $("warmup-body"),
-        `Next: ${noteLabel(next)} (${solfegeFromRoot(next, state.warmupRoot)}) · ${state.vowel.toUpperCase()}`
-      );
-    }
-    refreshGuides();
-  }
+  // Same key again: confirm and play the set
+  demoWarmup();
 }
 
-function resetWarmup(keepExercise = true) {
+function resetWarmup() {
   state.warmupRoot = null;
   state.warmupStep = 0;
   state.warmupActive = false;
-  $("warmup-demo").disabled = true;
-  $("warmup-reset").disabled = true;
+  state.warmupPlaying = false;
   setVectorLabel($("warmup-title"), "Choose a root", "title");
-  setVectorBody($("warmup-body"), "Tap any key to set your starting pitch.");
+  setVectorBody(
+    $("warmup-body"),
+    "Tap a key to choose the starting pitch, then tap it again to play."
+  );
   refreshGuides();
 }
 
 async function demoWarmup() {
-  if (state.warmupRoot == null) return;
+  if (state.warmupRoot == null || state.warmupPlaying) return;
   const pattern = EXERCISES[state.exercise].pattern;
-  $("warmup-demo").disabled = true;
+  const root = state.warmupRoot;
+  state.warmupPlaying = true;
+  setVectorBody($("warmup-body"), `Playing set · sing “${state.vowel.toUpperCase()}”`);
+
   for (let i = 0; i < pattern.length; i++) {
+    // Pitch changed or mode left mid-playback — stop
+    if (state.warmupRoot !== root || state.mode !== "warmup") break;
     state.warmupStep = i;
     refreshGuides();
-    const m = state.warmupRoot + pattern[i];
+    const m = root + pattern[i];
     updateNowPlaying(m);
     playNote(m, { duration: 0.38 });
     await sleep(420);
   }
+
+  state.warmupPlaying = false;
   state.warmupStep = 0;
   refreshGuides();
-  $("warmup-demo").disabled = false;
-  setVectorBody($("warmup-body"), "Your turn — follow the bright key.");
+
+  if (state.mode === "warmup" && state.warmupRoot === root) {
+    setVectorBody(
+      $("warmup-body"),
+      `Done. Tap ${noteLabel(root)} again to replay, or another key to switch pitch.`
+    );
+  }
 }
 
 function sleep(ms) {
@@ -809,7 +802,7 @@ function setMode(mode) {
   $("harmony-panel").hidden = next !== "harmony";
 
   if (next !== "warmup") {
-    // keep root if switching away briefly? clear guides only
+    state.warmupPlaying = false;
   }
   if (next === null) {
     clearGuides();
@@ -822,7 +815,7 @@ function setMode(mode) {
   }
 
   if (next === "warmup" && state.warmupRoot == null) {
-    setVectorLabel($("warmup-title"), "Choose a root", "title");
+    resetWarmup();
   }
   if (next === "harmony" && state.harmonyRoot == null) {
     clearHarmony();
@@ -878,7 +871,10 @@ function bindUI() {
         state.warmupStep = 0;
         const ex = EXERCISES[state.exercise];
         setVectorLabel($("warmup-title"), `${ex.name} from ${noteLabel(state.warmupRoot)}`, "title");
-        setVectorBody($("warmup-body"), ex.desc);
+        setVectorBody(
+          $("warmup-body"),
+          `Tap ${noteLabel(state.warmupRoot)} again to play this set · ${state.vowel.toUpperCase()}`
+        );
         refreshGuides();
       }
     });
@@ -889,18 +885,17 @@ function bindUI() {
       document.querySelectorAll("#vowel-chips .chip").forEach((c) => c.classList.remove("active"));
       chip.classList.add("active");
       state.vowel = chip.dataset.vowel;
-      if (state.warmupRoot != null) {
+      if (state.warmupRoot != null && !state.warmupPlaying) {
         setVectorBody(
           $("warmup-body"),
-          `${EXERCISES[state.exercise].desc} Vowel: ${state.vowel.toUpperCase()}.`
+          `Tap ${noteLabel(state.warmupRoot)} again to play this set · ${state.vowel.toUpperCase()}`
         );
       }
       setVectorLabel($("np-label"), `SING “${state.vowel.toUpperCase()}”`, "npLabel");
     });
   });
 
-  $("warmup-demo").addEventListener("click", () => demoWarmup());
-  $("warmup-reset").addEventListener("click", () => resetWarmup());
+  // Hear set / Reset removed — tap root twice to play the set
 
   document.querySelectorAll("#quality-chips .chip").forEach((chip) => {
     chip.addEventListener("click", () => {
@@ -975,10 +970,18 @@ function paintStaticLabels() {
 
   setVectorLabel($("warmup-heading"), "Warmup set", "title");
   setVectorLabel($("warmup-close"), "Close", "close");
-  setVectorBody($("warmup-lead"), "Play a starting pitch, then follow the highlighted path.", "body", 36);
+  setVectorBody(
+    $("warmup-lead"),
+    "Tap a starting pitch, then tap it again to play the set.",
+    "body",
+    36
+  );
   setVectorLabel($("tone-field-label"), "TONE", "field");
   setVectorLabel($("warmup-title"), "Choose a root", "title");
-  setVectorBody($("warmup-body"), "Tap any white key to set your starting pitch.");
+  setVectorBody(
+    $("warmup-body"),
+    "Tap a key to choose the starting pitch, then tap it again to play."
+  );
 
   setVectorLabel($("harmony-heading"), "Harmony finder", "title");
   setVectorLabel($("harmony-close"), "Close", "close");

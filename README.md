@@ -5,7 +5,7 @@ A phone-first web piano for choir rehearsal. The keyboard is always there; **War
 ## Features
 
 - **Piano** — Touch keyboard with acoustic grand piano samples (Web Audio). Octave shift and sustain pedal.
-- **Warmups** (toggle) — Pick an opening set (5-tone, arpeggio, siren, octave, solfege), choose a vowel tone (Ah/Eh/Ee/Oh/Oo), tap a starting pitch, then follow the highlighted path. Hear the set as a demo.
+- **Warmups** (toggle) — Pick an opening set and vowel tone, tap a starting pitch, then tap the same key again to play the set. Tap another key to switch pitch and confirm again.
 - **Harmony** (toggle) — Play a root; Voix highlights chord tones (major / minor / dom7 / sus4) as a triad, close voicing, or SATB parts. Hear the stacked chord. Turn on **Play chord on key** so each keypress sounds the full harmony together.
 
 ## Run locally
