@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover, user-scalable=no"
+    />
+    <meta name="theme-color" content="#15201c" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="description" content="Voix — a choir practice piano for warmups and harmony." />
+    <link rel="manifest" href="manifest.json" />
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>♪</text></svg>" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,700&family=Nunito:wght@400;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="styles.css" />
+    <title>Voix — Choir Practice Piano</title>
+  </head>
+  <body>
+    <div class="app" id="app">
+      <header class="top">
+        <div class="brand-block">
+          <p class="brand">Voix</p>
+          <p class="tagline">Choir practice piano</p>
+        </div>
+        <button type="button" class="icon-btn" id="sustain-btn" aria-pressed="false" title="Sustain">
+          Pedal
+        </button>
+      </header>
+
+      <section class="hero-stage" aria-label="Practice stage">
+        <div class="atmosphere" aria-hidden="true"></div>
+        <div class="now-playing" id="now-playing">
+          <span class="np-label">Tap a key</span>
+          <span class="np-note" id="np-note">—</span>
+          <span class="np-solfege" id="np-solfege"></span>
+        </div>
+
+        <div class="mode-toggles" role="group" aria-label="Practice modes">
+          <button type="button" class="mode-toggle" id="warmup-toggle" aria-pressed="false">
+            <span class="mode-name">Warmups</span>
+            <span class="mode-hint">Opening &amp; tone sets</span>
+          </button>
+          <button type="button" class="mode-toggle" id="harmony-toggle" aria-pressed="false">
+            <span class="mode-name">Harmony</span>
+            <span class="mode-hint">Find chord tones</span>
+          </button>
+        </div>
+      </section>
+
+      <!-- Warmup panel -->
+      <aside class="feature-panel" id="warmup-panel" hidden>
+        <div class="panel-head">
+          <h2>Warmup set</h2>
+          <button type="button" class="text-btn" id="warmup-close">Close</button>
+        </div>
+        <p class="panel-lead">Play a starting pitch, then follow the highlighted path.</p>
+
+        <div class="chip-row" id="warmup-exercises" role="listbox" aria-label="Warmup exercises">
+          <button type="button" class="chip active" data-exercise="five" role="option" aria-selected="true">
+            5-tone
+          </button>
+          <button type="button" class="chip" data-exercise="arpeggio" role="option" aria-selected="false">
+            Arpeggio
+          </button>
+          <button type="button" class="chip" data-exercise="siren" role="option" aria-selected="false">
+            Siren
+          </button>
+          <button type="button" class="chip" data-exercise="octave" role="option" aria-selected="false">
+            Octave
+          </button>
+          <button type="button" class="chip" data-exercise="solfege" role="option" aria-selected="false">
+            Solfege
+          </button>
+        </div>
+
+        <div class="vowel-row" aria-label="Vowel / tone color">
+          <span class="field-label">Tone</span>
+          <div class="chip-row compact" id="vowel-chips">
+            <button type="button" class="chip tone active" data-vowel="ah">Ah</button>
+            <button type="button" class="chip tone" data-vowel="eh">Eh</button>
+            <button type="button" class="chip tone" data-vowel="ee">Ee</button>
+            <button type="button" class="chip tone" data-vowel="oh">Oh</button>
+            <button type="button" class="chip tone" data-vowel="oo">Oo</button>
+          </div>
+        </div>
+
+        <div class="status-card" id="warmup-status">
+          <p class="status-title" id="warmup-title">Choose a root</p>
+          <p class="status-body" id="warmup-body">Tap any white key to set your starting pitch.</p>
+          <div class="status-actions">
+            <button type="button" class="btn secondary" id="warmup-demo" disabled>Hear set</button>
+            <button type="button" class="btn primary" id="warmup-reset" disabled>Reset</button>
+          </div>
+        </div>
+      </aside>
+
+      <!-- Harmony panel -->
+      <aside class="feature-panel" id="harmony-panel" hidden>
+        <div class="panel-head">
+          <h2>Harmony finder</h2>
+          <button type="button" class="text-btn" id="harmony-close">Close</button>
+        </div>
+        <p class="panel-lead">Play a note — Voix highlights the chord tones around it.</p>
+
+        <div class="chip-row" id="quality-chips" role="listbox" aria-label="Chord quality">
+          <button type="button" class="chip active" data-quality="major" role="option" aria-selected="true">
+            Major
+          </button>
+          <button type="button" class="chip" data-quality="minor" role="option" aria-selected="false">
+            Minor
+          </button>
+          <button type="button" class="chip" data-quality="dom7" role="option" aria-selected="false">
+            Dom7
+          </button>
+          <button type="button" class="chip" data-quality="sus4" role="option" aria-selected="false">
+            Sus4
+          </button>
+        </div>
+
+        <div class="chip-row compact" id="voicing-chips" role="listbox" aria-label="Voicing">
+          <button type="button" class="chip active" data-voicing="triad" role="option" aria-selected="true">
+            Triad
+          </button>
+          <button type="button" class="chip" data-voicing="satb" role="option" aria-selected="false">
+            SATB
+          </button>
+          <button type="button" class="chip" data-voicing="close" role="option" aria-selected="false">
+            Close
+          </button>
+        </div>
+
+        <div class="status-card" id="harmony-status">
+          <p class="status-title" id="harmony-title">Play a root</p>
+          <p class="status-body" id="harmony-body">Highlighted keys are your harmony parts.</p>
+          <ul class="part-list" id="part-list" hidden></ul>
+          <div class="status-actions">
+            <button type="button" class="btn secondary" id="harmony-hear" disabled>Hear chord</button>
+            <button type="button" class="btn primary" id="harmony-clear" disabled>Clear</button>
+          </div>
+        </div>
+      </aside>
+
+      <main class="piano-shell">
+        <div class="octave-nav">
+          <button type="button" class="nav-btn" id="oct-down" aria-label="Lower octave">‹</button>
+          <span id="octave-label">C3 – C5</span>
+          <button type="button" class="nav-btn" id="oct-up" aria-label="Higher octave">›</button>
+        </div>
+        <div class="piano" id="piano" role="application" aria-label="Piano keyboard"></div>
+      </main>
+
+      <p class="tap-hint" id="audio-hint">Tap anywhere to unlock sound</p>
+    </div>
+
+    <script src="app.js" type="module"></script>
+  </body>
+</html>
