@@ -2,7 +2,7 @@
  * Render UI copy as SVG images so iOS Safari won't offer Look Up / text selection.
  * Returns an <img> (vector data-URI) — not a live text node.
  */
-function escapeXml(value) {
+export function escapeXml(value) {
   return String(value)
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
@@ -79,7 +79,7 @@ function buildVectorSvg(text, styleName, { maxWidth = null, align = "left" } = {
   };
 }
 
-function setVectorLabel(el, text, styleName = "body", opts = {}) {
+export function setVectorLabel(el, text, styleName = "body", opts = {}) {
   if (!el) return;
   const label = text == null || text === "" ? " " : String(text);
   const { svg, width, height } = buildVectorSvg(label, styleName, opts);
@@ -128,6 +128,6 @@ function wrapMultiline(text, maxChars) {
   return lines.join("\n");
 }
 
-function setVectorBody(el, text, styleName = "body", maxChars = 42) {
+export function setVectorBody(el, text, styleName = "body", maxChars = 42) {
   setVectorLabel(el, wrapMultiline(text, maxChars), styleName);
 }
