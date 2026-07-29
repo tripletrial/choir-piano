@@ -55,6 +55,10 @@ const EXERCISES = {
 let audioCtx = null;
 let masterGain = null;
 let sustainOn = false;
+/** True when warmup playback engaged the pedal (restore afterward) */
+let pedalAutoEngaged = false;
+/** User pedal state before an auto-pedal passage */
+let pedalUserBeforeAuto = false;
 const activeVoices = new Map();
 
 /** Acoustic grand piano samples (MusyngKite via jsDelivr) */
@@ -308,21 +312,21 @@ function playFallbackTone(midi, { duration = null, velocity = 0.85 } = {}) {
   return voice;
 }
 
-function releaseNote(midi, at = null) {
+function releaseNote(midi, at = null, { releaseSec = null } = {}) {
   const voice = activeVoices.get(midi);
   if (!voice || voice.release) return;
   ensureAudio();
   const t = at ?? audioCtx.currentTime;
   voice.release = true;
-  const releaseSec = voice.isSample ? 0.45 : 0.35;
+  const rel = releaseSec ?? (voice.isSample ? 0.55 : 0.35);
   try {
     voice.gain.gain.cancelScheduledValues(t);
     voice.gain.gain.setValueAtTime(Math.max(voice.gain.gain.value, 0.0001), t);
-    voice.gain.gain.exponentialRampToValueAtTime(0.0001, t + releaseSec);
+    voice.gain.gain.exponentialRampToValueAtTime(0.0001, t + rel);
   } catch {
     /* ignore */
   }
-  const stopDelay = Math.ceil(releaseSec * 1000) + 40;
+  const stopDelay = Math.ceil(rel * 1000) + 40;
   setTimeout(() => {
     try {
       voice.source.stop();
@@ -348,10 +352,67 @@ function stopNote(midi, immediate = false) {
   releaseNote(midi);
 }
 
-function stopAll() {
-  for (const midi of [...activeVoices.keys()]) {
-    stopNote(midi, true);
+function setPedal(on, { auto = false, phraseClear = false } = {}) {
+  if (auto && on) {
+    if (!pedalAutoEngaged) {
+      pedalUserBeforeAuto = sustainOn;
+      pedalAutoEngaged = true;
+    }
   }
+
+  sustainOn = !!on;
+  state.sustain = sustainOn;
+  $("sustain-btn")?.setAttribute("aria-pressed", String(sustainOn));
+
+  if (!sustainOn) {
+    for (const midi of [...activeVoices.keys()]) releaseNote(midi);
+  }
+
+  // End of an auto-pedaled passage: restore the player's own pedal preference
+  if (auto && !on && !phraseClear && pedalAutoEngaged) {
+    pedalAutoEngaged = false;
+    if (pedalUserBeforeAuto) {
+      sustainOn = true;
+      state.sustain = true;
+      $("sustain-btn")?.setAttribute("aria-pressed", "true");
+    }
+  }
+}
+
+function releaseAllVoices({ immediate = false } = {}) {
+  for (const midi of [...activeVoices.keys()]) {
+    if (immediate) stopNote(midi, true);
+    else releaseNote(midi);
+  }
+}
+
+function stopAll() {
+  releaseAllVoices({ immediate: true });
+}
+
+/** Peak index of a warmup pattern (phrase turnaround) */
+function patternPeakIndex(pattern) {
+  let peak = 0;
+  let peakVal = -Infinity;
+  for (let i = 0; i < pattern.length; i++) {
+    if (pattern[i] > peakVal) {
+      peakVal = pattern[i];
+      peak = i;
+    }
+  }
+  return peak;
+}
+
+/** Soft dynamic curve: swell to the peak, ease down — like a sung warmup */
+function warmupVelocity(i, len, peakIdx) {
+  if (len <= 1) return 0.72;
+  if (i === len - 1) return 0.55; // settle on the final
+  if (i <= peakIdx) {
+    const t = peakIdx === 0 ? 1 : i / peakIdx;
+    return 0.58 + t * 0.28;
+  }
+  const t = (i - peakIdx) / Math.max(1, len - 1 - peakIdx);
+  return 0.86 - t * 0.22;
 }
 
 function whiteMidiList() {
@@ -625,18 +686,56 @@ async function demoWarmup() {
   if (state.warmupRoot == null || state.warmupPlaying) return;
   const pattern = EXERCISES[state.exercise].pattern;
   const root = state.warmupRoot;
+  const peakIdx = patternPeakIndex(pattern);
+  const beatMs = 480; // moderate practice tempo (~125 bpm)
   state.warmupPlaying = true;
   setVectorBody($("warmup-body"), `Playing set · sing “${state.vowel.toUpperCase()}”`);
 
+  // Pianist puts the pedal down for a legato phrase
+  setPedal(true, { auto: true });
+
+  let aborted = false;
   for (let i = 0; i < pattern.length; i++) {
-    // Pitch changed or mode left mid-playback — stop
-    if (state.warmupRoot !== root || state.mode !== "warmup") break;
+    if (state.warmupRoot !== root || state.mode !== "warmup") {
+      aborted = true;
+      break;
+    }
+
+    // Clear & re-take pedal at the phrase peak (breath at the top)
+    if (i === peakIdx && i > 0 && i < pattern.length - 1) {
+      setPedal(false, { auto: true, phraseClear: true });
+      await sleep(55);
+      if (state.warmupRoot !== root || state.mode !== "warmup") {
+        aborted = true;
+        break;
+      }
+      setPedal(true, { auto: true });
+    }
+
     state.warmupStep = i;
     refreshGuides();
     const m = root + pattern[i];
+    const isLast = i === pattern.length - 1;
+    const velocity = warmupVelocity(i, pattern.length, peakIdx);
     updateNowPlaying(m);
-    playNote(m, { duration: 0.38 });
-    await sleep(420);
+
+    // Under pedal: tones overlap. Final note held ~2 beats with pedal.
+    playNote(m, { velocity });
+    if (isLast) {
+      await sleep(beatMs * 2);
+    } else {
+      const step =
+        i >= pattern.length - 3 ? beatMs * (i === pattern.length - 2 ? 1.25 : 1.1) : beatMs;
+      await sleep(step);
+    }
+  }
+
+  // Lift the pedal after the held final — dampers settle like a real finish
+  setPedal(false, { auto: true });
+  if (!aborted && state.mode === "warmup") {
+    await sleep(beatMs * 0.35);
+  } else {
+    releaseAllVoices({ immediate: false });
   }
 
   state.warmupPlaying = false;
@@ -803,6 +902,7 @@ function setMode(mode) {
 
   if (next !== "warmup") {
     state.warmupPlaying = false;
+    if (pedalAutoEngaged) setPedal(false, { auto: true });
   }
   if (next === null) {
     clearGuides();
@@ -835,12 +935,9 @@ function bindUI() {
   $("harmony-close").addEventListener("click", () => setMode(null));
 
   $("sustain-btn").addEventListener("click", () => {
-    sustainOn = !sustainOn;
-    state.sustain = sustainOn;
-    $("sustain-btn").setAttribute("aria-pressed", String(sustainOn));
-    if (!sustainOn) {
-      for (const midi of [...activeVoices.keys()]) releaseNote(midi);
-    }
+    // Manual pedal cancels any auto-pedal bookkeeping
+    pedalAutoEngaged = false;
+    setPedal(!sustainOn);
   });
 
   $("oct-down").addEventListener("click", () => {
