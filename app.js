@@ -55,6 +55,10 @@ const EXERCISES = {
 let audioCtx = null;
 let masterGain = null;
 let sustainOn = false;
+/** True when warmup playback engaged the pedal (restore afterward) */
+let pedalAutoEngaged = false;
+/** User pedal state before an auto-pedal passage */
+let pedalUserBeforeAuto = false;
 const activeVoices = new Map();
 
 /** Acoustic grand piano samples (MusyngKite via jsDelivr) */
@@ -348,10 +352,63 @@ function stopNote(midi, immediate = false) {
   releaseNote(midi);
 }
 
-function stopAll() {
-  for (const midi of [...activeVoices.keys()]) {
-    stopNote(midi, true);
+function setPedal(on, { auto = false, phraseClear = false } = {}) {
+  if (auto && on) {
+    if (!pedalAutoEngaged) {
+      pedalUserBeforeAuto = sustainOn;
+      pedalAutoEngaged = true;
+    }
   }
+
+  sustainOn = !!on;
+  state.sustain = sustainOn;
+  $("sustain-btn")?.setAttribute("aria-pressed", String(sustainOn));
+
+  if (!sustainOn) {
+    for (const midi of [...activeVoices.keys()]) releaseNote(midi);
+  }
+
+  // End of an auto-pedaled passage: restore the player's own pedal preference
+  if (auto && !on && !phraseClear && pedalAutoEngaged) {
+    pedalAutoEngaged = false;
+    if (pedalUserBeforeAuto) {
+      sustainOn = true;
+      state.sustain = true;
+      $("sustain-btn")?.setAttribute("aria-pressed", "true");
+    }
+  }
+}
+
+function releaseAllVoices({ immediate = false } = {}) {
+  for (const midi of [...activeVoices.keys()]) {
+    if (immediate) stopNote(midi, true);
+    else releaseNote(midi);
+  }
+}
+
+/** Peak index of a warmup pattern (phrase turnaround) */
+function patternPeakIndex(pattern) {
+  let peak = 0;
+  let peakVal = -Infinity;
+  for (let i = 0; i < pattern.length; i++) {
+    if (pattern[i] > peakVal) {
+      peakVal = pattern[i];
+      peak = i;
+    }
+  }
+  return peak;
+}
+
+/** Soft dynamic curve: swell to the peak, ease down — like a sung warmup */
+function warmupVelocity(i, len, peakIdx) {
+  if (len <= 1) return 0.72;
+  if (i === len - 1) return 0.55; // settle on the final
+  if (i <= peakIdx) {
+    const t = peakIdx === 0 ? 1 : i / peakIdx;
+    return 0.58 + t * 0.28;
+  }
+  const t = (i - peakIdx) / Math.max(1, len - 1 - peakIdx);
+  return 0.86 - t * 0.22;
 }
 
 function whiteMidiList() {
@@ -803,6 +860,7 @@ function setMode(mode) {
 
   if (next !== "warmup") {
     state.warmupPlaying = false;
+    if (pedalAutoEngaged) setPedal(false, { auto: true });
   }
   if (next === null) {
     clearGuides();
@@ -835,12 +893,9 @@ function bindUI() {
   $("harmony-close").addEventListener("click", () => setMode(null));
 
   $("sustain-btn").addEventListener("click", () => {
-    sustainOn = !sustainOn;
-    state.sustain = sustainOn;
-    $("sustain-btn").setAttribute("aria-pressed", String(sustainOn));
-    if (!sustainOn) {
-      for (const midi of [...activeVoices.keys()]) releaseNote(midi);
-    }
+    // Manual pedal cancels any auto-pedal bookkeeping
+    pedalAutoEngaged = false;
+    setPedal(!sustainOn);
   });
 
   $("oct-down").addEventListener("click", () => {
