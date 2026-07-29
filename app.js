@@ -312,21 +312,21 @@ function playFallbackTone(midi, { duration = null, velocity = 0.85 } = {}) {
   return voice;
 }
 
-function releaseNote(midi, at = null) {
+function releaseNote(midi, at = null, { releaseSec = null } = {}) {
   const voice = activeVoices.get(midi);
   if (!voice || voice.release) return;
   ensureAudio();
   const t = at ?? audioCtx.currentTime;
   voice.release = true;
-  const releaseSec = voice.isSample ? 0.45 : 0.35;
+  const rel = releaseSec ?? (voice.isSample ? 0.55 : 0.35);
   try {
     voice.gain.gain.cancelScheduledValues(t);
     voice.gain.gain.setValueAtTime(Math.max(voice.gain.gain.value, 0.0001), t);
-    voice.gain.gain.exponentialRampToValueAtTime(0.0001, t + releaseSec);
+    voice.gain.gain.exponentialRampToValueAtTime(0.0001, t + rel);
   } catch {
     /* ignore */
   }
-  const stopDelay = Math.ceil(releaseSec * 1000) + 40;
+  const stopDelay = Math.ceil(rel * 1000) + 40;
   setTimeout(() => {
     try {
       voice.source.stop();
@@ -384,6 +384,10 @@ function releaseAllVoices({ immediate = false } = {}) {
     if (immediate) stopNote(midi, true);
     else releaseNote(midi);
   }
+}
+
+function stopAll() {
+  releaseAllVoices({ immediate: true });
 }
 
 /** Peak index of a warmup pattern (phrase turnaround) */
