@@ -695,6 +695,7 @@ async function demoWarmup() {
   setPedal(true, { auto: true });
 
   let aborted = false;
+  let pedalStillDown = true;
   for (let i = 0; i < pattern.length; i++) {
     if (state.warmupRoot !== root || state.mode !== "warmup") {
       aborted = true;
@@ -719,10 +720,14 @@ async function demoWarmup() {
     const velocity = warmupVelocity(i, pattern.length, peakIdx);
     updateNowPlaying(m);
 
-    // Under pedal: tones overlap. Final note held ~2 beats with pedal.
+    // Under pedal: tones overlap. Final rings ~4 beats with a natural fade.
     playNote(m, { velocity });
     if (isLast) {
-      await sleep(beatMs * 2);
+      // Hold with pedal, then lift so the tone fades away across 4 beats
+      await sleep(beatMs * 2.75);
+      setPedal(false, { auto: true });
+      pedalStillDown = false;
+      await sleep(beatMs * 1.25);
     } else {
       const step =
         i >= pattern.length - 3 ? beatMs * (i === pattern.length - 2 ? 1.25 : 1.1) : beatMs;
@@ -730,13 +735,9 @@ async function demoWarmup() {
     }
   }
 
-  // Lift the pedal after the held final — dampers settle like a real finish
-  setPedal(false, { auto: true });
-  if (!aborted && state.mode === "warmup") {
-    await sleep(beatMs * 0.35);
-  } else {
-    releaseAllVoices({ immediate: false });
-  }
+  // Safety: lift auto-pedal if we aborted mid-phrase
+  if (pedalStillDown) setPedal(false, { auto: true });
+  if (aborted) releaseAllVoices({ immediate: false });
 
   state.warmupPlaying = false;
   state.warmupStep = 0;
