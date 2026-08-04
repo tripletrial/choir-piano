@@ -17,16 +17,39 @@ const QUALITY_INTERVALS = {
   major: [0, 4, 7],
   minor: [0, 3, 7],
   dom7: [0, 4, 7, 10],
+  maj7: [0, 4, 7, 11],
+  min7: [0, 3, 7, 10],
+  aug: [0, 4, 8],
+  dim: [0, 3, 6],
   sus4: [0, 5, 7],
+};
+
+const QUALITY_TITLE = {
+  major: "major",
+  minor: "minor",
+  dom7: "7",
+  maj7: "maj7",
+  min7: "min7",
+  aug: "aug",
+  dim: "dim",
+  sus4: "sus4",
 };
 
 const ROLE_LABELS = ["Root", "3rd", "5th", "7th"];
 const ROLE_CLASSES = ["guide-root", "guide-3", "guide-5", "guide-7"];
 
+const INSTRUMENTS = {
+  piano: { name: "Grand Piano" },
+  hum: { name: "Choir Hum" },
+  organ: { name: "Pipe Organ" },
+  strings: { name: "Strings" },
+  epiano: { name: "Electric Piano" },
+};
+
 const EXERCISES = {
   five: {
     name: "5-tone scale",
-    desc: "Do–Re–Mi–Fa–Sol and back. Keep the vowel steady.",
+    desc: "Do–Re–Mi–Fa–Sol and back. Keep the tone steady.",
     pattern: [0, 2, 4, 5, 7, 5, 4, 2, 0],
   },
   arpeggio: {
@@ -81,7 +104,6 @@ const state = {
   isDesktop: false,
   // warmup
   exercise: "five",
-  vowel: "ah",
   warmupRoot: null,
   warmupStep: 0,
   warmupActive: false,
@@ -91,6 +113,7 @@ const state = {
   voicing: "triad",
   harmonyRoot: null,
   syncPlay: false,
+  instrument: "piano",
 };
 
 /** Computer keyboard → semitone offset from the leftmost C on the piano */
@@ -253,23 +276,24 @@ function nearestLoadedSample(midi) {
   return best;
 }
 
-/** Grand piano sample playback; mild vowel filter in warmup mode */
+/** Play note with the selected instrument */
 function playNote(midi, { duration = null, velocity = 0.85 } = {}) {
   ensureAudio();
-  const now = audioCtx.currentTime;
   stopNote(midi, true);
+
+  if (state.instrument !== "piano") {
+    return playSynthVoice(midi, { duration, velocity });
+  }
 
   const sample = nearestLoadedSample(midi);
   if (!sample) {
-    // Kick off load and use a soft fallback until samples arrive
-    decodeSample(midi).then((buf) => {
-      if (buf && !activeVoices.has(midi)) {
-        /* next press will use sample */
-      }
+    decodeSample(midi).then(() => {
+      /* next press will use sample */
     });
-    return playFallbackTone(midi, { duration, velocity });
+    return playSynthVoice(midi, { duration, velocity, preset: "fallback" });
   }
 
+  const now = audioCtx.currentTime;
   const source = audioCtx.createBufferSource();
   source.buffer = sample.buffer;
   source.playbackRate.value = Math.pow(2, (midi - sample.midi) / 12);
@@ -277,15 +301,8 @@ function playNote(midi, { duration = null, velocity = 0.85 } = {}) {
   const gain = audioCtx.createGain();
   const filter = audioCtx.createBiquadFilter();
   filter.type = "lowpass";
-
-  if (state.mode === "warmup") {
-    const formants = { ah: 2800, eh: 2400, ee: 3200, oh: 2000, oo: 1600 };
-    filter.frequency.value = formants[state.vowel] || 2600;
-    filter.Q.value = 0.7;
-  } else {
-    filter.frequency.value = 12000;
-    filter.Q.value = 0.5;
-  }
+  filter.frequency.value = 12000;
+  filter.Q.value = 0.5;
 
   source.connect(filter);
   filter.connect(gain);
@@ -298,7 +315,7 @@ function playNote(midi, { duration = null, velocity = 0.85 } = {}) {
 
   source.start(now);
 
-  const voice = { source, gain, filter, release: null, isSample: true };
+  const voice = { source, gain, filter, release: null, isSample: true, oscillators: [] };
   activeVoices.set(midi, voice);
 
   source.onended = () => {
@@ -309,29 +326,105 @@ function playNote(midi, { duration = null, velocity = 0.85 } = {}) {
     releaseNote(midi, now + duration);
   }
 
-  // Prefetch neighbors for smoother runs
   decodeSample(midi + 1);
   decodeSample(midi - 1);
 
   return voice;
 }
 
-/** Soft sine fallback if samples are not loaded yet */
-function playFallbackTone(midi, { duration = null, velocity = 0.85 } = {}) {
+/** Synthesized instruments (hum / organ / strings / e.piano) + soft fallback */
+function playSynthVoice(midi, { duration = null, velocity = 0.85, preset = null } = {}) {
+  ensureAudio();
   const now = audioCtx.currentTime;
   const freq = midiToFreq(midi);
-  const osc = audioCtx.createOscillator();
+  const kind = preset || state.instrument;
   const gain = audioCtx.createGain();
-  osc.type = "triangle";
-  osc.frequency.setValueAtTime(freq, now);
-  osc.connect(gain);
+  const filter = audioCtx.createBiquadFilter();
+  const oscillators = [];
+
+  const addOsc = (type, ratio, level, detune = 0) => {
+    const osc = audioCtx.createOscillator();
+    const g = audioCtx.createGain();
+    osc.type = type;
+    osc.frequency.setValueAtTime(freq * ratio, now);
+    if (detune) osc.detune.setValueAtTime(detune, now);
+    g.gain.value = level;
+    osc.connect(g);
+    g.connect(filter);
+    oscillators.push(osc);
+    return osc;
+  };
+
+  filter.type = "lowpass";
+  let peak = 0.55 * velocity;
+  let attack = 0.02;
+  let decayTo = 0.7;
+
+  if (kind === "hum") {
+    filter.frequency.value = 900;
+    filter.Q.value = 1.2;
+    peak = 0.42 * velocity;
+    attack = 0.08;
+    decayTo = 0.85;
+    addOsc("sine", 1, 0.7);
+    addOsc("sine", 2, 0.18, 3);
+    addOsc("triangle", 1, 0.22, -4);
+  } else if (kind === "organ") {
+    filter.frequency.value = 4200;
+    filter.Q.value = 0.4;
+    peak = 0.38 * velocity;
+    attack = 0.01;
+    decayTo = 0.95;
+    addOsc("sine", 1, 0.45);
+    addOsc("sine", 2, 0.28);
+    addOsc("sine", 3, 0.16);
+    addOsc("sine", 4, 0.12);
+    addOsc("sine", 6, 0.08);
+  } else if (kind === "strings") {
+    filter.frequency.value = 2800;
+    filter.Q.value = 0.6;
+    peak = 0.4 * velocity;
+    attack = 0.14;
+    decayTo = 0.8;
+    addOsc("sawtooth", 1, 0.35, -6);
+    addOsc("sawtooth", 1, 0.35, 7);
+    addOsc("triangle", 2, 0.12, 2);
+  } else if (kind === "epiano") {
+    filter.frequency.value = 3200;
+    filter.Q.value = 0.9;
+    peak = 0.5 * velocity;
+    attack = 0.005;
+    decayTo = 0.45;
+    addOsc("sine", 1, 0.55);
+    addOsc("triangle", 2, 0.28, 4);
+    addOsc("sine", 4.02, 0.12);
+  } else {
+    // fallback soft tone while piano samples load
+    filter.frequency.value = 2200;
+    filter.Q.value = 0.5;
+    peak = 0.35 * velocity;
+    addOsc("triangle", 1, 0.8);
+  }
+
+  filter.connect(gain);
   gain.connect(masterGain);
-  const peak = 0.35 * velocity;
+
   gain.gain.setValueAtTime(0.0001, now);
-  gain.gain.exponentialRampToValueAtTime(peak, now + 0.02);
-  osc.start(now);
-  const voice = { source: osc, gain, release: null, isSample: false };
+  gain.gain.exponentialRampToValueAtTime(Math.max(peak, 0.001), now + attack);
+  gain.gain.exponentialRampToValueAtTime(Math.max(peak * decayTo, 0.001), now + attack + 0.18);
+
+  for (const osc of oscillators) osc.start(now);
+
+  const voice = {
+    source: oscillators[0],
+    oscillators,
+    gain,
+    filter,
+    release: null,
+    isSample: false,
+  };
   activeVoices.set(midi, voice);
+
   if (duration != null) releaseNote(midi, now + duration);
   return voice;
 }
@@ -342,7 +435,7 @@ function releaseNote(midi, at = null, { releaseSec = null } = {}) {
   ensureAudio();
   const t = at ?? audioCtx.currentTime;
   voice.release = true;
-  const rel = releaseSec ?? (voice.isSample ? 0.55 : 0.35);
+  const rel = releaseSec ?? (voice.isSample ? 0.55 : 0.45);
   try {
     voice.gain.gain.cancelScheduledValues(t);
     voice.gain.gain.setValueAtTime(Math.max(voice.gain.gain.value, 0.0001), t);
@@ -353,7 +446,14 @@ function releaseNote(midi, at = null, { releaseSec = null } = {}) {
   const stopDelay = Math.ceil(rel * 1000) + 40;
   setTimeout(() => {
     try {
-      voice.source.stop();
+      voice.source?.stop?.();
+      (voice.oscillators || []).forEach((o) => {
+        try {
+          o.stop();
+        } catch {
+          /* ignore */
+        }
+      });
     } catch {
       /* ignore */
     }
@@ -366,7 +466,14 @@ function stopNote(midi, immediate = false) {
   if (!voice) return;
   if (immediate) {
     try {
-      voice.source.stop();
+      voice.source?.stop?.();
+      (voice.oscillators || []).forEach((o) => {
+        try {
+          o.stop();
+        } catch {
+          /* ignore */
+        }
+      });
     } catch {
       /* ignore */
     }
@@ -559,11 +666,67 @@ function updateNowPlaying(midi) {
   setVectorLabel($("np-note"), noteLabel(midi), "display");
   const root = state.mode === "warmup" ? state.warmupRoot : state.harmonyRoot;
   setVectorLabel($("np-solfege"), solfegeFromRoot(midi, root), "solfege");
-  const label =
-    state.mode === "warmup" && state.vowel ? `Sing “${state.vowel}”` : "Now sounding";
-  setVectorLabel($("np-label"), label.toUpperCase(), "npLabel");
 }
 
+function keyExists(midi) {
+  return Boolean(document.querySelector(`.piano [data-midi="${midi}"]`));
+}
+
+function partLetter(part) {
+  if (!part) return "?";
+  if (part === "Soprano") return "S";
+  if (part === "Alto") return "A";
+  if (part === "Tenor") return "T";
+  if (part === "Bass") return "B";
+  return part.charAt(0).toUpperCase();
+}
+
+function updateRangeCues(tones = []) {
+  const left = $("range-cue-left");
+  const right = $("range-cue-right");
+  if (!left || !right) return;
+
+  if (!tones.length || state.mode !== "harmony") {
+    left.hidden = true;
+    right.hidden = true;
+    left.replaceChildren();
+    right.replaceChildren();
+    return;
+  }
+
+  const whites = whiteMidiList();
+  const lo = whites[0];
+  const hi = whites[whites.length - 1];
+  const below = [];
+  const above = [];
+
+  tones.forEach((t) => {
+    if (keyExists(t.midi)) return;
+    if (t.midi < lo) below.push(t);
+    else if (t.midi > hi) above.push(t);
+    else {
+      // black key missing shouldn't happen; treat by pitch vs range mid
+      if (t.midi < (lo + hi) / 2) below.push(t);
+      else above.push(t);
+    }
+  });
+
+  const paintCue = (btn, list, side) => {
+    if (!list.length) {
+      btn.hidden = true;
+      btn.replaceChildren();
+      return;
+    }
+    btn.hidden = false;
+    const letters = [...new Set(list.map((t) => partLetter(t.part)))].join("");
+    const label = side === "left" ? `‹ ${letters}` : `${letters} ›`;
+    setVectorLabel(btn, label, "chip");
+    btn.dataset.side = side;
+  };
+
+  paintCue(left, below, "left");
+  paintCue(right, above, "right");
+}
 
 function clearGuides() {
   document.querySelectorAll(".piano [data-midi]").forEach((el) => {
@@ -597,13 +760,16 @@ function refreshGuides() {
       midis.forEach((m, i) => markMidi(m, i === 0 ? "guide-root" : "guide-path"));
     }
     markMidi(state.warmupRoot, "guide-root");
-  }
-  if (state.mode === "harmony" && state.harmonyRoot != null) {
+    updateRangeCues([]);
+  } else if (state.mode === "harmony" && state.harmonyRoot != null) {
     const tones = getHarmonyTones(state.harmonyRoot);
     tones.forEach((t, i) => {
       markMidi(t.midi, ROLE_CLASSES[Math.min(i, ROLE_CLASSES.length - 1)]);
       if (t.part === "Bass") markMidi(t.midi, "guide-bass");
     });
+    updateRangeCues(tones);
+  } else {
+    updateRangeCues([]);
   }
 }
 
@@ -675,7 +841,7 @@ function selectWarmupRoot(midi) {
   setVectorLabel($("warmup-title"), `${ex.name} from ${noteLabel(midi)}`, "title");
   setVectorBody(
     $("warmup-body"),
-    `Tap ${noteLabel(midi)} again to play this set · ${state.vowel.toUpperCase()}`
+    `Tap ${noteLabel(midi)} again to play this set`
   );
   refreshGuides();
 }
@@ -713,7 +879,7 @@ async function demoWarmup() {
   const peakIdx = patternPeakIndex(pattern);
   const beatMs = 480; // moderate practice tempo (~125 bpm)
   state.warmupPlaying = true;
-  setVectorBody($("warmup-body"), `Playing set · sing “${state.vowel.toUpperCase()}”`);
+  setVectorBody($("warmup-body"), "Playing set…");
 
   // Pianist puts the pedal down for a legato phrase
   setPedal(true, { auto: true });
@@ -843,7 +1009,7 @@ function handleHarmonyKey(midi) {
   const tones = getHarmonyTones(midi);
   setVectorLabel(
     $("harmony-title"),
-    `${noteLabel(midi)} ${q === "dom7" ? "7" : q === "sus4" ? "sus4" : q}`,
+    `${noteLabel(midi)} ${QUALITY_TITLE[q] || q}`,
     "title"
   );
   updateHarmonyBodyHint();
@@ -974,7 +1140,7 @@ function bindUI() {
     }
   });
   $("oct-up").addEventListener("click", () => {
-    if (state.baseOctave < 5) {
+    if (state.baseOctave < (state.isDesktop ? 4 : 5)) {
       state.baseOctave += 1;
       renderPiano();
       if (state.audioUnlocked) preloadPianoSamples();
@@ -996,27 +1162,40 @@ function bindUI() {
         setVectorLabel($("warmup-title"), `${ex.name} from ${noteLabel(state.warmupRoot)}`, "title");
         setVectorBody(
           $("warmup-body"),
-          `Tap ${noteLabel(state.warmupRoot)} again to play this set · ${state.vowel.toUpperCase()}`
+          `Tap ${noteLabel(state.warmupRoot)} again to play this set`
         );
         refreshGuides();
       }
     });
   });
 
-  document.querySelectorAll("#vowel-chips .chip").forEach((chip) => {
-    chip.addEventListener("click", () => {
-      document.querySelectorAll("#vowel-chips .chip").forEach((c) => c.classList.remove("active"));
-      chip.classList.add("active");
-      state.vowel = chip.dataset.vowel;
-      if (state.warmupRoot != null && !state.warmupPlaying) {
-        setVectorBody(
-          $("warmup-body"),
-          `Tap ${noteLabel(state.warmupRoot)} again to play this set · ${state.vowel.toUpperCase()}`
-        );
-      }
-      setVectorLabel($("np-label"), `SING “${state.vowel.toUpperCase()}”`, "npLabel");
+  const voiceSelect = $("voice-select");
+  if (voiceSelect) {
+    voiceSelect.value = state.instrument;
+    voiceSelect.addEventListener("change", () => {
+      const next = voiceSelect.value;
+      if (!INSTRUMENTS[next]) return;
+      state.instrument = next;
+      releaseAllVoices({ immediate: true });
+      ensureAudio();
+      if (next === "piano" && state.audioUnlocked) preloadPianoSamples();
     });
-  });
+  }
+
+  const shiftOctave = (dir) => {
+    if (dir < 0 && state.baseOctave > 1) {
+      state.baseOctave -= 1;
+      renderPiano();
+      if (state.audioUnlocked) preloadPianoSamples();
+    } else if (dir > 0 && state.baseOctave < (state.isDesktop ? 4 : 5)) {
+      state.baseOctave += 1;
+      renderPiano();
+      if (state.audioUnlocked) preloadPianoSamples();
+    }
+  };
+
+  $("range-cue-left")?.addEventListener("click", () => shiftOctave(-1));
+  $("range-cue-right")?.addEventListener("click", () => shiftOctave(1));
 
   // Hear set / Reset removed — tap root twice to play the set
 
@@ -1072,6 +1251,19 @@ function bindUI() {
   app.addEventListener("contextmenu", block);
   app.addEventListener("selectstart", block);
   app.addEventListener("gesturestart", block, { passive: false });
+  app.addEventListener("gesturechange", block, { passive: false });
+
+  // Prevent accidental double-tap zoom on the shell (esp. when touch-action was overridden)
+  let lastTapAt = 0;
+  app.addEventListener(
+    "touchend",
+    (e) => {
+      const now = Date.now();
+      if (now - lastTapAt < 300) e.preventDefault();
+      lastTapAt = now;
+    },
+    { passive: false }
+  );
 
   // Unlock audio on first gesture
   const unlock = () => ensureAudio();
@@ -1104,7 +1296,7 @@ function bindComputerKeyboard() {
   window.addEventListener("keydown", (e) => {
     if (e.metaKey || e.ctrlKey || e.altKey) return;
     const tag = e.target?.tagName;
-    if (tag === "INPUT" || tag === "TEXTAREA") return;
+    if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
 
     if (e.code === "Space") {
       e.preventDefault();
@@ -1180,64 +1372,35 @@ function applyDesktopLayout() {
 
   const hint = $("desk-keys-hint");
   if (hint) {
+    // Soft-hidden supporting copy — keep attribute so layout stays quiet
+    hint.hidden = true;
     if (desktop) {
-      hint.hidden = false;
       setVectorLabel(
         hint,
         "Computer keys  A–L  ·  blacks W E T Y U  ·  Space pedal  ·  ← → octave",
         "hint"
       );
-    } else {
-      hint.hidden = true;
     }
   }
 }
 
 function paintStaticLabels() {
   setVectorLabel($("brand-label"), "Voix", "brand");
-  setVectorLabel($("tagline-label"), "Choir practice piano", "tagline");
   setVectorLabel($("sustain-btn"), "PEDAL", "pedal");
-  setVectorLabel($("np-label"), state.isDesktop ? "PRESS A KEY" : "TAP A KEY", "npLabel");
   setVectorLabel($("np-note"), "—", "display");
   setVectorLabel($("np-solfege"), " ", "solfege");
 
   setVectorLabel($("warmup-name"), "Warmups", "modeName");
-  setVectorLabel($("warmup-hint"), "Opening & tone sets", "modeHint");
   setVectorLabel($("harmony-name"), "Harmony", "modeName");
-  setVectorLabel($("harmony-hint"), "Find chord tones", "modeHint");
 
   setVectorLabel($("warmup-heading"), "Warmup set", "title");
   setVectorLabel($("warmup-close"), "Close", "close");
-  setVectorBody(
-    $("warmup-lead"),
-    state.isDesktop
-      ? "Press a starting pitch, then press it again to play the set."
-      : "Tap a starting pitch, then tap it again to play the set.",
-    "body",
-    36
-  );
-  setVectorLabel($("tone-field-label"), "TONE", "field");
   setVectorLabel($("warmup-title"), "Choose a root", "title");
-  setVectorBody(
-    $("warmup-body"),
-    state.isDesktop
-      ? "Press a key to choose the starting pitch, then press it again to play."
-      : "Tap a key to choose the starting pitch, then tap it again to play."
-  );
 
   setVectorLabel($("harmony-heading"), "Harmony finder", "title");
   setVectorLabel($("harmony-close"), "Close", "close");
-  setVectorBody($("harmony-lead"), "Play a note — Voix highlights the chord tones around it.", "body", 36);
   setVectorLabel($("sync-name"), "Play chord on key", "syncName");
-  setVectorLabel($("sync-hint"), "One key sounds the full harmony together", "syncHint");
   setVectorLabel($("harmony-title"), "Play a root", "title");
-  setVectorBody($("harmony-body"), "Highlighted keys are your harmony parts.");
-
-  setVectorLabel(
-    $("audio-hint"),
-    state.isDesktop ? "Click or press a key to load the grand piano" : "Tap anywhere to load the grand piano",
-    "hint"
-  );
 
   document.querySelectorAll("[data-label]").forEach((el) => {
     const style = el.classList.contains("btn") ? "button" : "chip";

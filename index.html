@@ -27,16 +27,27 @@
       <header class="top">
         <div class="brand-block">
           <p class="brand" id="brand-label" aria-label="Voix"></p>
-          <p class="tagline" id="tagline-label" aria-label="Choir practice piano"></p>
+          <p class="tagline supporting-text" id="tagline-label" aria-label="Choir practice piano" hidden></p>
         </div>
-        <button type="button" class="icon-btn" id="sustain-btn" aria-pressed="false" aria-label="Pedal"></button>
+        <div class="top-controls">
+          <label class="voice-select-wrap" for="voice-select">
+            <select id="voice-select" class="voice-select" aria-label="Instrument">
+              <option value="piano" selected>Grand Piano</option>
+              <option value="hum">Choir Hum</option>
+              <option value="organ">Pipe Organ</option>
+              <option value="strings">Strings</option>
+              <option value="epiano">Electric Piano</option>
+            </select>
+          </label>
+          <button type="button" class="icon-btn" id="sustain-btn" aria-pressed="false" aria-label="Pedal"></button>
+        </div>
       </header>
 
       <section class="practice-stage" aria-label="Practice stage">
         <div class="atmosphere" aria-hidden="true"></div>
 
         <div class="now-playing" id="now-playing">
-          <span class="np-label" id="np-label" aria-label="Tap a key"></span>
+          <span class="np-label supporting-text" id="np-label" aria-label="Tap a key" hidden></span>
           <span class="np-note" id="np-note" aria-label="—"></span>
           <span class="np-solfege" id="np-solfege" aria-label=""></span>
         </div>
@@ -45,11 +56,11 @@
           <div class="mode-toggles" role="group" aria-label="Practice modes">
             <button type="button" class="mode-toggle" id="warmup-toggle" aria-pressed="false" aria-label="Warmups">
               <span class="mode-name" id="warmup-name"></span>
-              <span class="mode-hint" id="warmup-hint"></span>
+              <span class="mode-hint supporting-text" id="warmup-hint" hidden></span>
             </button>
             <button type="button" class="mode-toggle" id="harmony-toggle" aria-pressed="false" aria-label="Harmony">
               <span class="mode-name" id="harmony-name"></span>
-              <span class="mode-hint" id="harmony-hint"></span>
+              <span class="mode-hint supporting-text" id="harmony-hint" hidden></span>
             </button>
           </div>
 
@@ -58,7 +69,7 @@
               <h2 id="warmup-heading" aria-label="Warmup set"></h2>
               <button type="button" class="text-btn" id="warmup-close" aria-label="Close"></button>
             </div>
-            <p class="panel-lead" id="warmup-lead" aria-label="Tap a starting pitch, then tap it again to play the set."></p>
+            <p class="panel-lead supporting-text" id="warmup-lead" hidden></p>
 
             <div class="chip-row" id="warmup-exercises" role="listbox" aria-label="Warmup exercises">
               <button type="button" class="chip active" data-exercise="five" data-label="5-tone" role="option" aria-selected="true"></button>
@@ -68,20 +79,9 @@
               <button type="button" class="chip" data-exercise="solfege" data-label="Solfege" role="option" aria-selected="false"></button>
             </div>
 
-            <div class="vowel-row" aria-label="Vowel / tone color">
-              <span class="field-label" id="tone-field-label"></span>
-              <div class="chip-row compact" id="vowel-chips">
-                <button type="button" class="chip tone active" data-vowel="ah" data-label="Ah"></button>
-                <button type="button" class="chip tone" data-vowel="eh" data-label="Eh"></button>
-                <button type="button" class="chip tone" data-vowel="ee" data-label="Ee"></button>
-                <button type="button" class="chip tone" data-vowel="oh" data-label="Oh"></button>
-                <button type="button" class="chip tone" data-vowel="oo" data-label="Oo"></button>
-              </div>
-            </div>
-
             <div class="status-card" id="warmup-status">
               <p class="status-title" id="warmup-title"></p>
-              <p class="status-body" id="warmup-body"></p>
+              <p class="status-body supporting-text" id="warmup-body" hidden></p>
             </div>
           </aside>
 
@@ -90,12 +90,16 @@
               <h2 id="harmony-heading" aria-label="Harmony finder"></h2>
               <button type="button" class="text-btn" id="harmony-close" aria-label="Close"></button>
             </div>
-            <p class="panel-lead" id="harmony-lead"></p>
+            <p class="panel-lead supporting-text" id="harmony-lead" hidden></p>
 
             <div class="chip-row" id="quality-chips" role="listbox" aria-label="Chord quality">
               <button type="button" class="chip active" data-quality="major" data-label="Major" role="option" aria-selected="true"></button>
               <button type="button" class="chip" data-quality="minor" data-label="Minor" role="option" aria-selected="false"></button>
               <button type="button" class="chip" data-quality="dom7" data-label="Dom7" role="option" aria-selected="false"></button>
+              <button type="button" class="chip" data-quality="maj7" data-label="Maj7" role="option" aria-selected="false"></button>
+              <button type="button" class="chip" data-quality="min7" data-label="Min7" role="option" aria-selected="false"></button>
+              <button type="button" class="chip" data-quality="aug" data-label="Aug" role="option" aria-selected="false"></button>
+              <button type="button" class="chip" data-quality="dim" data-label="Dim" role="option" aria-selected="false"></button>
               <button type="button" class="chip" data-quality="sus4" data-label="Sus4" role="option" aria-selected="false"></button>
             </div>
 
@@ -114,14 +118,14 @@
             >
               <span class="sync-copy">
                 <span class="sync-name" id="sync-name"></span>
-                <span class="sync-hint" id="sync-hint"></span>
+                <span class="sync-hint supporting-text" id="sync-hint" hidden></span>
               </span>
               <span class="sync-switch" aria-hidden="true"></span>
             </button>
 
             <div class="status-card" id="harmony-status">
               <p class="status-title" id="harmony-title"></p>
-              <p class="status-body" id="harmony-body"></p>
+              <p class="status-body supporting-text" id="harmony-body" hidden></p>
               <ul class="part-list" id="part-list" hidden></ul>
               <div class="status-actions">
                 <button type="button" class="btn secondary" id="harmony-hear" data-label="Hear chord" disabled></button>
@@ -142,11 +146,15 @@
             <img class="vec-label" alt="" draggable="false" aria-hidden="true" width="14" height="22" src="data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='22'%3E%3Cpath d='M4 3l7 8-7 8' fill='none' stroke='%23f3efe6' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E" />
           </button>
         </div>
-        <div class="piano" id="piano" role="application" aria-label="Piano keyboard" tabindex="0"></div>
-        <p class="desk-keys-hint" id="desk-keys-hint" hidden></p>
+        <div class="piano-frame">
+          <button type="button" class="range-cue range-cue-left" id="range-cue-left" hidden aria-label="Lower octave toward missing parts"></button>
+          <div class="piano" id="piano" role="application" aria-label="Piano keyboard" tabindex="0"></div>
+          <button type="button" class="range-cue range-cue-right" id="range-cue-right" hidden aria-label="Higher octave toward missing parts"></button>
+        </div>
+        <p class="desk-keys-hint supporting-text" id="desk-keys-hint" hidden></p>
       </main>
 
-      <p class="tap-hint" id="audio-hint" aria-label="Click or press a key to load the grand piano"></p>
+      <p class="tap-hint supporting-text" id="audio-hint" hidden></p>
     </div>
 
     <script src="app.js" type="module"></script>

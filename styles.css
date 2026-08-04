@@ -92,6 +92,53 @@ body {
   animation: rise 0.7s ease both;
 }
 
+.top-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.voice-select-wrap {
+  display: inline-flex;
+  margin: 0;
+}
+
+.voice-select {
+  appearance: none;
+  -webkit-appearance: none;
+  border: 1px solid rgba(243, 239, 230, 0.18);
+  background:
+    linear-gradient(45deg, transparent 50%, var(--muted) 50%) calc(100% - 14px) calc(50% - 2px) / 5px 5px no-repeat,
+    linear-gradient(135deg, var(--muted) 50%, transparent 50%) calc(100% - 9px) calc(50% - 2px) / 5px 5px no-repeat,
+    rgba(255, 255, 255, 0.04);
+  color: var(--text);
+  border-radius: 999px;
+  padding: 8px 28px 8px 12px;
+  min-height: 36px;
+  font-family: var(--font-body);
+  font-size: 0.82rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  max-width: min(46vw, 168px);
+  cursor: pointer;
+}
+
+.voice-select:focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: 2px;
+}
+
+.voice-select option {
+  color: #101814;
+  background: #f3efe6;
+}
+
+.supporting-text,
+.supporting-text[hidden] {
+  display: none !important;
+}
+
 .brand {
   margin: 0;
   line-height: 1;
@@ -359,12 +406,6 @@ body {
   transform: translateX(18px);
 }
 
-.vowel-row {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
 .field-label {
   min-height: 0.9rem;
   display: block;
@@ -491,6 +532,42 @@ body {
   align-items: center;
   justify-content: center;
   padding: 0;
+}
+
+.piano-frame {
+  position: relative;
+  width: 100%;
+}
+
+.range-cue {
+  position: absolute;
+  top: 50%;
+  z-index: 4;
+  transform: translateY(-50%);
+  border: 1px solid rgba(243, 239, 230, 0.28);
+  background: rgba(16, 24, 20, 0.78);
+  color: var(--gold-soft);
+  border-radius: 10px;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 6px 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  backdrop-filter: blur(6px);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
+}
+
+.range-cue[hidden] {
+  display: none !important;
+}
+
+.range-cue-left {
+  left: 6px;
+}
+
+.range-cue-right {
+  right: 6px;
 }
 
 .piano {
@@ -675,10 +752,6 @@ body {
 
 /* —— Desktop stage —— */
 @media (min-width: 900px) {
-  body {
-    touch-action: auto;
-  }
-
   .app {
     max-width: 1120px;
     min-height: 100vh;
@@ -741,7 +814,9 @@ body {
   .btn,
   .text-btn,
   .sync-toggle,
-  .nav-btn {
+  .nav-btn,
+  .voice-select,
+  .range-cue {
     cursor: pointer;
   }
 
