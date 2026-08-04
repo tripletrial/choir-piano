@@ -77,12 +77,17 @@ const EXERCISES = {
 /** @type {AudioContext | null} */
 let audioCtx = null;
 let masterGain = null;
-let sustainOn = false;
+let sustainOn = true;
 /** True when warmup playback engaged the pedal (restore afterward) */
 let pedalAutoEngaged = false;
 /** User pedal state before an auto-pedal passage */
 let pedalUserBeforeAuto = false;
 const activeVoices = new Map();
+
+/** Fixed choir keyboard: C2–C6 (29 white keys) */
+const RANGE_START_MIDI = 36; // C2
+const RANGE_WHITE_COUNT = 29;
+const PAN_THRESHOLD_PX = 10;
 
 /** Acoustic grand piano samples (MusyngKite via jsDelivr) */
 const PIANO_SAMPLE_BASE =
@@ -96,10 +101,10 @@ let pianoReady = false;
 let pianoLoadPromise = null;
 
 const state = {
-  baseOctave: 3,
-  whiteCount: 15, // C3–C5 inclusive = 15 white keys (phone); desktop widens
+  rangeStartMidi: RANGE_START_MIDI,
+  whiteCount: RANGE_WHITE_COUNT,
   mode: null, // 'warmup' | 'harmony' | null
-  sustain: false,
+  sustain: true,
   audioUnlocked: false,
   isDesktop: false,
   // warmup
@@ -315,7 +320,7 @@ function playNote(midi, { duration = null, velocity = 0.85 } = {}) {
 
   source.start(now);
 
-  const voice = { source, gain, filter, release: null, isSample: true, oscillators: [] };
+  const voice = { source, gain, filter, release: null, isSample: true, releaseSec: 0.55, oscillators: [] };
   activeVoices.set(midi, voice);
 
   source.onended = () => {
@@ -359,6 +364,9 @@ function playSynthVoice(midi, { duration = null, velocity = 0.85, preset = null 
   let peak = 0.55 * velocity;
   let attack = 0.02;
   let decayTo = 0.7;
+  let sustainFloor = 0.08;
+  let naturalDecaySec = 4.5;
+  let releaseSec = 0.55;
 
   if (kind === "hum") {
     filter.frequency.value = 900;
@@ -366,6 +374,9 @@ function playSynthVoice(midi, { duration = null, velocity = 0.85, preset = null 
     peak = 0.42 * velocity;
     attack = 0.08;
     decayTo = 0.85;
+    sustainFloor = 0.06;
+    naturalDecaySec = 5.5;
+    releaseSec = 0.7;
     addOsc("sine", 1, 0.7);
     addOsc("sine", 2, 0.18, 3);
     addOsc("triangle", 1, 0.22, -4);
@@ -375,6 +386,9 @@ function playSynthVoice(midi, { duration = null, velocity = 0.85, preset = null 
     peak = 0.38 * velocity;
     attack = 0.01;
     decayTo = 0.95;
+    sustainFloor = null; // holds like a pipe organ
+    naturalDecaySec = 0;
+    releaseSec = 0.55;
     addOsc("sine", 1, 0.45);
     addOsc("sine", 2, 0.28);
     addOsc("sine", 3, 0.16);
@@ -386,6 +400,9 @@ function playSynthVoice(midi, { duration = null, velocity = 0.85, preset = null 
     peak = 0.4 * velocity;
     attack = 0.14;
     decayTo = 0.8;
+    sustainFloor = 0.1;
+    naturalDecaySec = 6;
+    releaseSec = 0.7;
     addOsc("sawtooth", 1, 0.35, -6);
     addOsc("sawtooth", 1, 0.35, 7);
     addOsc("triangle", 2, 0.12, 2);
@@ -395,6 +412,9 @@ function playSynthVoice(midi, { duration = null, velocity = 0.85, preset = null 
     peak = 0.5 * velocity;
     attack = 0.005;
     decayTo = 0.45;
+    sustainFloor = 0.04;
+    naturalDecaySec = 3.2;
+    releaseSec = 0.55;
     addOsc("sine", 1, 0.55);
     addOsc("triangle", 2, 0.28, 4);
     addOsc("sine", 4.02, 0.12);
@@ -403,15 +423,27 @@ function playSynthVoice(midi, { duration = null, velocity = 0.85, preset = null 
     filter.frequency.value = 2200;
     filter.Q.value = 0.5;
     peak = 0.35 * velocity;
+    sustainFloor = 0.05;
+    naturalDecaySec = 3.8;
+    releaseSec = 0.55;
     addOsc("triangle", 1, 0.8);
   }
 
   filter.connect(gain);
   gain.connect(masterGain);
 
+  const afterAttack = now + attack;
+  const afterDecay = afterAttack + 0.18;
   gain.gain.setValueAtTime(0.0001, now);
-  gain.gain.exponentialRampToValueAtTime(Math.max(peak, 0.001), now + attack);
-  gain.gain.exponentialRampToValueAtTime(Math.max(peak * decayTo, 0.001), now + attack + 0.18);
+  gain.gain.exponentialRampToValueAtTime(Math.max(peak, 0.001), afterAttack);
+  gain.gain.exponentialRampToValueAtTime(Math.max(peak * decayTo, 0.001), afterDecay);
+  // Piano-like natural fade while held (organ sustains)
+  if (sustainFloor != null && naturalDecaySec > 0) {
+    gain.gain.exponentialRampToValueAtTime(
+      Math.max(peak * sustainFloor, 0.001),
+      afterDecay + naturalDecaySec
+    );
+  }
 
   for (const osc of oscillators) osc.start(now);
 
@@ -422,6 +454,7 @@ function playSynthVoice(midi, { duration = null, velocity = 0.85, preset = null 
     filter,
     release: null,
     isSample: false,
+    releaseSec,
   };
   activeVoices.set(midi, voice);
 
@@ -435,7 +468,7 @@ function releaseNote(midi, at = null, { releaseSec = null } = {}) {
   ensureAudio();
   const t = at ?? audioCtx.currentTime;
   voice.release = true;
-  const rel = releaseSec ?? (voice.isSample ? 0.55 : 0.45);
+  const rel = releaseSec ?? voice.releaseSec ?? 0.55;
   try {
     voice.gain.gain.cancelScheduledValues(t);
     voice.gain.gain.setValueAtTime(Math.max(voice.gain.gain.value, 0.0001), t);
@@ -548,14 +581,97 @@ function warmupVelocity(i, len, peakIdx) {
 
 function whiteMidiList() {
   const list = [];
-  // MIDI C for octave n is (n + 1) * 12  (C3 = 48, C4 = 60)
-  const cStart = (state.baseOctave + 1) * 12;
+  const cStart = state.rangeStartMidi;
   for (let i = 0; i < state.whiteCount; i++) {
     const octaveOffset = Math.floor(i / 7);
     const deg = i % 7;
     list.push(cStart + octaveOffset * 12 + WHITE_OFFSETS[deg]);
   }
   return list;
+}
+
+function pianoScrollEl() {
+  return $("piano-scroll");
+}
+
+function keyWidthPx() {
+  const el = $("piano") || $("app");
+  if (!el) return 40;
+  const raw = getComputedStyle(el).getPropertyValue("--key-w").trim();
+  const n = parseFloat(raw);
+  return Number.isFinite(n) && n > 0 ? n : 40;
+}
+
+function updateVisibleRangeLabel() {
+  const scroll = pianoScrollEl();
+  const whites = whiteMidiList();
+  if (!scroll || !whites.length) return;
+  const kw = keyWidthPx();
+  const startIdx = Math.max(0, Math.min(whites.length - 1, Math.floor(scroll.scrollLeft / kw)));
+  const visibleCount = Math.max(1, Math.ceil(scroll.clientWidth / kw));
+  const endIdx = Math.min(whites.length - 1, startIdx + visibleCount - 1);
+  setVectorLabel(
+    $("octave-label"),
+    `${noteLabel(whites[startIdx])} – ${noteLabel(whites[endIdx])}`,
+    "octave"
+  );
+}
+
+function scrollByOctave(dir) {
+  const scroll = pianoScrollEl();
+  if (!scroll) return;
+  const delta = keyWidthPx() * 7 * (dir < 0 ? -1 : 1);
+  scroll.scrollBy({ left: delta, behavior: "smooth" });
+}
+
+function scrollMidiIntoView(midi, { smooth = true } = {}) {
+  const scroll = pianoScrollEl();
+  const key = document.querySelector(`.piano [data-midi="${midi}"]`);
+  if (!scroll || !key) return;
+  const keyLeft = key.offsetLeft;
+  const keyRight = keyLeft + key.offsetWidth;
+  const viewLeft = scroll.scrollLeft;
+  const viewRight = viewLeft + scroll.clientWidth;
+  let next = viewLeft;
+  if (keyLeft < viewLeft + 8) next = keyLeft - scroll.clientWidth * 0.35;
+  else if (keyRight > viewRight - 8) next = keyRight - scroll.clientWidth * 0.65;
+  else return;
+  next = Math.max(0, Math.min(scroll.scrollWidth - scroll.clientWidth, next));
+  scroll.scrollTo({ left: next, behavior: smooth ? "smooth" : "auto" });
+}
+
+function isMidiInViewport(midi) {
+  const scroll = pianoScrollEl();
+  const key = document.querySelector(`.piano [data-midi="${midi}"]`);
+  if (!scroll || !key) return false;
+  const keyLeft = key.offsetLeft;
+  const keyRight = keyLeft + key.offsetWidth;
+  const viewLeft = scroll.scrollLeft;
+  const viewRight = viewLeft + scroll.clientWidth;
+  return keyRight > viewLeft + 4 && keyLeft < viewRight - 4;
+}
+
+function leftmostVisibleWhiteMidi() {
+  const scroll = pianoScrollEl();
+  const whites = whiteMidiList();
+  if (!scroll || !whites.length) return whites[0] ?? 60;
+  const idx = Math.max(0, Math.min(whites.length - 1, Math.round(scroll.scrollLeft / keyWidthPx())));
+  // Snap to nearest C in view for computer-key mapping
+  const approx = whites[idx];
+  const c = approx - (approx % 12);
+  return Math.max(whites[0], Math.min(whites[whites.length - 1], c));
+}
+
+function centerInitialScroll() {
+  const scroll = pianoScrollEl();
+  if (!scroll) return;
+  // Start near C3–C5 for choir practice
+  const c3 = document.querySelector(`.piano [data-midi="48"]`);
+  if (c3) {
+    const target = Math.max(0, c3.offsetLeft - scroll.clientWidth * 0.15);
+    scroll.scrollLeft = target;
+  }
+  updateVisibleRangeLabel();
 }
 
 function renderPiano() {
@@ -569,8 +685,6 @@ function renderPiano() {
   blacks.className = "keys-black";
 
   const whiteMidis = whiteMidiList();
-  const endLabel = noteLabel(whiteMidis[whiteMidis.length - 1]);
-  setVectorLabel($("octave-label"), `${noteLabel(whiteMidis[0])} – ${endLabel}`, "octave");
 
   whiteMidis.forEach((midi, i) => {
     const btn = document.createElement("button");
@@ -587,7 +701,6 @@ function renderPiano() {
 
     if (i < state.whiteCount - 1) {
       const nextWhite = whiteMidis[i + 1];
-      // Black key sits between whites that are a whole step apart
       if (nextWhite - midi === 2) {
         const blackMidi = midi + 1;
         const b = document.createElement("button");
@@ -606,11 +719,43 @@ function renderPiano() {
   piano.appendChild(whites);
   piano.appendChild(blacks);
   bindPianoPointers(piano);
-  refreshGuides();
+  bindPianoScroll();
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      centerInitialScroll();
+      refreshGuides();
+    });
+  });
+}
+
+let pianoScrollBound = false;
+function bindPianoScroll() {
+  const scroll = pianoScrollEl();
+  if (!scroll || pianoScrollBound) return;
+  pianoScrollBound = true;
+  let raf = 0;
+  scroll.addEventListener(
+    "scroll",
+    () => {
+      if (raf) return;
+      raf = requestAnimationFrame(() => {
+        raf = 0;
+        updateVisibleRangeLabel();
+        if (state.mode === "harmony" && state.harmonyRoot != null) {
+          updateRangeCues(getHarmonyTones(state.harmonyRoot));
+        }
+      });
+    },
+    { passive: true }
+  );
 }
 
 function bindPianoPointers(piano) {
-  const pressed = new Map();
+  if (piano.dataset.pointerBound === "1") return;
+  piano.dataset.pointerBound = "1";
+
+  /** @type {Map<number, { midi: number|null, startX: number, startY: number, lastX: number, panning: boolean, armed: boolean }>} */
+  const gestures = new Map();
 
   const midiFromPoint = (x, y) => {
     const el = document.elementFromPoint(x, y);
@@ -619,44 +764,107 @@ function bindPianoPointers(piano) {
     return key ? Number(key.dataset.midi) : null;
   };
 
-  const down = (midi, pointerId) => {
-    if (midi == null) return;
-    pressed.set(pointerId, midi);
-    const key = piano.querySelector(`[data-midi="${midi}"]`);
-    key?.classList.add("active");
+  const playDown = (midi, gesture) => {
+    if (midi == null || gesture.panning) return;
+    gesture.midi = midi;
+    gesture.armed = true;
+    piano.querySelector(`[data-midi="${midi}"]`)?.classList.add("active");
     onKeyDown(midi);
   };
 
-  const up = (pointerId) => {
-    const midi = pressed.get(pointerId);
-    pressed.delete(pointerId);
+  const playUp = (gesture) => {
+    const midi = gesture.midi;
+    gesture.midi = null;
     if (midi == null) return;
-    const still = [...pressed.values()].includes(midi);
+    const still = [...gestures.values()].some((g) => g.midi === midi);
     if (!still) {
       piano.querySelector(`[data-midi="${midi}"]`)?.classList.remove("active");
       onKeyUp(midi);
     }
   };
 
+  const enterPan = (gesture, totalDx) => {
+    if (gesture.panning) return;
+    gesture.panning = true;
+    if (gesture.armed) {
+      playUp(gesture);
+      gesture.armed = false;
+    }
+    const scroll = pianoScrollEl();
+    if (scroll) scroll.scrollLeft -= totalDx;
+  };
+
   piano.addEventListener("pointerdown", (e) => {
     e.preventDefault();
     piano.setPointerCapture?.(e.pointerId);
     const midi = Number(e.target.closest?.("[data-midi]")?.dataset?.midi);
-    if (!Number.isFinite(midi)) return;
-    down(midi, e.pointerId);
+    const gesture = {
+      midi: null,
+      startX: e.clientX,
+      startY: e.clientY,
+      lastX: e.clientX,
+      panning: false,
+      armed: false,
+    };
+    gestures.set(e.pointerId, gesture);
+    // Delay commit slightly so a horizontal drag can become a pan instead
+    gesture.commitTimer = window.setTimeout(() => {
+      if (!gestures.has(e.pointerId) || gesture.panning || gesture.armed) return;
+      if (Number.isFinite(midi)) playDown(midi, gesture);
+    }, 45);
   });
 
   piano.addEventListener("pointermove", (e) => {
-    if (!pressed.has(e.pointerId)) return;
+    const g = gestures.get(e.pointerId);
+    if (!g) return;
+    const dx = e.clientX - g.lastX;
+    g.lastX = e.clientX;
+    const totalDx = e.clientX - g.startX;
+    const totalDy = e.clientY - g.startY;
+
+    if (!g.panning && !g.armed) {
+      if (Math.abs(totalDx) >= PAN_THRESHOLD_PX && Math.abs(totalDx) > Math.abs(totalDy)) {
+        clearTimeout(g.commitTimer);
+        enterPan(g, totalDx);
+        return;
+      }
+      if (Math.abs(totalDy) >= PAN_THRESHOLD_PX || Math.abs(totalDx) + Math.abs(totalDy) > 0) {
+        // Vertical / small motion — commit the note under the finger
+        if (!g.armed) {
+          clearTimeout(g.commitTimer);
+          const midi = midiFromPoint(e.clientX, e.clientY) ?? Number(e.target.closest?.("[data-midi]")?.dataset?.midi);
+          if (Number.isFinite(midi)) playDown(midi, g);
+        }
+      }
+      return;
+    }
+
+    if (g.panning) {
+      const scroll = pianoScrollEl();
+      if (scroll) scroll.scrollLeft -= dx;
+      return;
+    }
+
     const midi = midiFromPoint(e.clientX, e.clientY);
-    const prev = pressed.get(e.pointerId);
+    const prev = g.midi;
     if (midi != null && midi !== prev) {
-      up(e.pointerId);
-      down(midi, e.pointerId);
+      playUp(g);
+      playDown(midi, g);
     }
   });
 
-  const end = (e) => up(e.pointerId);
+  const end = (e) => {
+    const g = gestures.get(e.pointerId);
+    if (!g) return;
+    clearTimeout(g.commitTimer);
+    if (!g.armed && !g.panning) {
+      const midi = Number(e.target.closest?.("[data-midi]")?.dataset?.midi);
+      if (Number.isFinite(midi)) playDown(midi, g);
+    }
+    if (g.armed) playUp(g);
+    gestures.delete(e.pointerId);
+  };
+
   piano.addEventListener("pointerup", end);
   piano.addEventListener("pointercancel", end);
   piano.addEventListener("lostpointercapture", end);
@@ -691,30 +899,30 @@ function updateRangeCues(tones = []) {
     right.hidden = true;
     left.replaceChildren();
     right.replaceChildren();
+    left.dataset.targetMidi = "";
+    right.dataset.targetMidi = "";
     return;
   }
 
-  const whites = whiteMidiList();
-  const lo = whites[0];
-  const hi = whites[whites.length - 1];
+  const scroll = pianoScrollEl();
+  const midX = scroll ? scroll.scrollLeft + scroll.clientWidth / 2 : 0;
   const below = [];
   const above = [];
 
   tones.forEach((t) => {
-    if (keyExists(t.midi)) return;
-    if (t.midi < lo) below.push(t);
-    else if (t.midi > hi) above.push(t);
-    else {
-      // black key missing shouldn't happen; treat by pitch vs range mid
-      if (t.midi < (lo + hi) / 2) below.push(t);
-      else above.push(t);
-    }
+    if (!keyExists(t.midi)) return;
+    if (isMidiInViewport(t.midi)) return;
+    const key = document.querySelector(`.piano [data-midi="${t.midi}"]`);
+    if (!key) return;
+    if (key.offsetLeft + key.offsetWidth / 2 < midX) below.push(t);
+    else above.push(t);
   });
 
   const paintCue = (btn, list, side) => {
     if (!list.length) {
       btn.hidden = true;
       btn.replaceChildren();
+      btn.dataset.targetMidi = "";
       return;
     }
     btn.hidden = false;
@@ -722,6 +930,12 @@ function updateRangeCues(tones = []) {
     const label = side === "left" ? `‹ ${letters}` : `${letters} ›`;
     setVectorLabel(btn, label, "chip");
     btn.dataset.side = side;
+    // Aim for the farthest off-screen tone in that direction
+    const target = list.reduce((best, t) => {
+      if (!best) return t;
+      return side === "left" ? (t.midi < best.midi ? t : best) : t.midi > best.midi ? t : best;
+    }, null);
+    btn.dataset.targetMidi = target ? String(target.midi) : "";
   };
 
   paintCue(left, below, "left");
@@ -1132,20 +1346,8 @@ function bindUI() {
     setPedal(!sustainOn);
   });
 
-  $("oct-down").addEventListener("click", () => {
-    if (state.baseOctave > 1) {
-      state.baseOctave -= 1;
-      renderPiano();
-      if (state.audioUnlocked) preloadPianoSamples();
-    }
-  });
-  $("oct-up").addEventListener("click", () => {
-    if (state.baseOctave < (state.isDesktop ? 4 : 5)) {
-      state.baseOctave += 1;
-      renderPiano();
-      if (state.audioUnlocked) preloadPianoSamples();
-    }
-  });
+  $("oct-down").addEventListener("click", () => scrollByOctave(-1));
+  $("oct-up").addEventListener("click", () => scrollByOctave(1));
 
   document.querySelectorAll("#warmup-exercises .chip").forEach((chip) => {
     chip.addEventListener("click", () => {
@@ -1182,20 +1384,14 @@ function bindUI() {
     });
   }
 
-  const shiftOctave = (dir) => {
-    if (dir < 0 && state.baseOctave > 1) {
-      state.baseOctave -= 1;
-      renderPiano();
-      if (state.audioUnlocked) preloadPianoSamples();
-    } else if (dir > 0 && state.baseOctave < (state.isDesktop ? 4 : 5)) {
-      state.baseOctave += 1;
-      renderPiano();
-      if (state.audioUnlocked) preloadPianoSamples();
-    }
+  const scrollCueTarget = (btn) => {
+    const midi = Number(btn?.dataset?.targetMidi);
+    if (Number.isFinite(midi)) scrollMidiIntoView(midi);
+    else scrollByOctave(btn?.dataset?.side === "left" ? -1 : 1);
   };
 
-  $("range-cue-left")?.addEventListener("click", () => shiftOctave(-1));
-  $("range-cue-right")?.addEventListener("click", () => shiftOctave(1));
+  $("range-cue-left")?.addEventListener("click", (e) => scrollCueTarget(e.currentTarget));
+  $("range-cue-right")?.addEventListener("click", (e) => scrollCueTarget(e.currentTarget));
 
   // Hear set / Reset removed — tap root twice to play the set
 
@@ -1273,19 +1469,22 @@ function bindUI() {
   bindComputerKeyboard();
   window.addEventListener("resize", () => {
     applyDesktopLayout();
+    if (state.mode === "harmony" && state.harmonyRoot != null) {
+      updateRangeCues(getHarmonyTones(state.harmonyRoot));
+    }
   });
 }
 
 function midiFromComputerKey(key) {
   const offset = COMPUTER_KEY_OFFSETS[key];
   if (offset == null) return null;
-  const baseC = (state.baseOctave + 1) * 12;
+  const baseC = leftmostVisibleWhiteMidi();
   const midi = baseC + offset;
   const whites = whiteMidiList();
   const lo = whites[0];
-  const hi = whites[whites.length - 1];
-  if (midi < lo || midi > hi + 1) return null;
-  return midi;
+  const hi = whites[whites.length - 1] + 1;
+  if (midi < lo || midi > hi) return null;
+  return keyExists(midi) ? midi : null;
 }
 
 function setKeyVisual(midi, on) {
@@ -1302,25 +1501,17 @@ function bindComputerKeyboard() {
       e.preventDefault();
       if (e.repeat) return;
       pedalAutoEngaged = false;
-      setPedal(true);
+      setPedal(!sustainOn);
       return;
     }
     if (e.key === "ArrowLeft") {
       e.preventDefault();
-      if (!e.repeat && state.baseOctave > 1) {
-        state.baseOctave -= 1;
-        renderPiano();
-        if (state.audioUnlocked) preloadPianoSamples();
-      }
+      if (!e.repeat) scrollByOctave(-1);
       return;
     }
     if (e.key === "ArrowRight") {
       e.preventDefault();
-      if (!e.repeat && state.baseOctave < (state.isDesktop ? 4 : 5)) {
-        state.baseOctave += 1;
-        renderPiano();
-        if (state.audioUnlocked) preloadPianoSamples();
-      }
+      if (!e.repeat) scrollByOctave(1);
       return;
     }
 
@@ -1338,8 +1529,6 @@ function bindComputerKeyboard() {
   window.addEventListener("keyup", (e) => {
     if (e.code === "Space") {
       e.preventDefault();
-      pedalAutoEngaged = false;
-      setPedal(false);
       return;
     }
     const key = e.key.length === 1 ? e.key.toLowerCase() : e.key;
@@ -1353,31 +1542,20 @@ function bindComputerKeyboard() {
 }
 
 function applyDesktopLayout() {
-  const desktop = window.matchMedia("(min-width: 900px)").matches;
-  const wide = window.matchMedia("(min-width: 1200px)").matches;
-  const nextCount = wide ? 29 : desktop ? 22 : 15;
-  const wasDesktop = state.isDesktop;
-  const layoutChanged = wasDesktop !== desktop || state.whiteCount !== nextCount;
-
+  const desktop = window.matchMedia("(min-width: 700px)").matches;
   state.isDesktop = desktop;
+  state.whiteCount = RANGE_WHITE_COUNT;
+  state.rangeStartMidi = RANGE_START_MIDI;
 
-  if (layoutChanged) {
-    state.whiteCount = nextCount;
-    if (wasDesktop !== desktop) state.baseOctave = desktop ? 2 : 3;
-    if ($("piano")?.querySelector(".keys-white")) {
-      renderPiano();
-      if (state.audioUnlocked) preloadPianoSamples();
-    }
-  }
+  updateVisibleRangeLabel();
 
   const hint = $("desk-keys-hint");
   if (hint) {
-    // Soft-hidden supporting copy — keep attribute so layout stays quiet
     hint.hidden = true;
     if (desktop) {
       setVectorLabel(
         hint,
-        "Computer keys  A–L  ·  blacks W E T Y U  ·  Space pedal  ·  ← → octave",
+        "Computer keys  A–L  ·  blacks W E T Y U  ·  Space pedal  ·  ← → scroll",
         "hint"
       );
     }
@@ -1412,6 +1590,7 @@ function init() {
   applyDesktopLayout();
   paintStaticLabels();
   bindUI();
+  setPedal(true);
   renderPiano();
   applyDesktopLayout();
 
