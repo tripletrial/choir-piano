@@ -122,13 +122,21 @@ body {
   color: var(--gold-soft);
 }
 
-.hero-stage {
+.hero-stage,
+.practice-stage {
   position: relative;
   display: flex;
   flex-direction: column;
   gap: 14px;
   padding: 8px 2px 4px;
   animation: rise 0.8s ease 0.05s both;
+}
+
+.practice-side {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
 }
 
 .atmosphere {
@@ -665,8 +673,151 @@ body {
   }
 }
 
-@media (orientation: landscape) and (max-height: 500px) {
-  .hero-stage {
+/* —— Desktop stage —— */
+@media (min-width: 900px) {
+  body {
+    touch-action: auto;
+  }
+
+  .app {
+    max-width: 1120px;
+    min-height: 100vh;
+    padding: 28px 36px 24px;
+    gap: 16px;
+    overflow: visible;
+  }
+
+  .brand {
+    font-size: 3.2rem;
+  }
+
+  .practice-stage {
+    display: grid;
+    grid-template-columns: minmax(240px, 0.85fr) minmax(320px, 1.15fr);
+    gap: 18px 32px;
+    align-items: start;
+    padding: 12px 4px 8px;
+  }
+
+  .atmosphere {
+    height: 180px;
+    inset: -30% -5% auto;
+  }
+
+  .now-playing {
+    min-height: 110px;
+    align-self: end;
+  }
+
+  .np-note .vec-label {
+    max-height: 4.2rem;
+  }
+
+  .practice-side {
+    gap: 14px;
+  }
+
+  .mode-toggles {
+    align-self: stretch;
+  }
+
+  .mode-toggle {
+    padding: 16px 18px;
+    cursor: pointer;
+  }
+
+  .mode-toggle:hover {
+    border-color: rgba(243, 239, 230, 0.28);
+    background: linear-gradient(160deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.03));
+  }
+
+  .feature-panel {
+    max-height: min(42vh, 420px);
+    min-height: 0;
+  }
+
+  .icon-btn,
+  .chip,
+  .btn,
+  .text-btn,
+  .sync-toggle,
+  .nav-btn {
+    cursor: pointer;
+  }
+
+  .chip:hover {
+    border-color: rgba(243, 239, 230, 0.32);
+    background: rgba(255, 255, 255, 0.08);
+  }
+
+  .btn:hover:not(:disabled) {
+    filter: brightness(1.08);
+  }
+
+  .piano-shell {
+    margin-top: 8px;
+    gap: 12px;
+  }
+
+  .piano {
+    height: min(38vh, 300px);
+    min-height: 240px;
+    border-radius: 14px 14px 10px 10px;
+  }
+
+  .piano:focus {
+    outline: none;
+  }
+
+  .piano:focus-visible {
+    box-shadow:
+      0 12px 40px rgba(0, 0, 0, 0.45),
+      0 0 0 2px rgba(212, 168, 75, 0.45);
+  }
+
+  .key-white:hover:not(.active) {
+    background: linear-gradient(180deg, #fffdf8 0%, #f5f0e6 72%, #ebe3d4 100%);
+  }
+
+  .key-black:hover:not(.active) {
+    background: linear-gradient(180deg, #3a4541 0%, #252e2b 85%, #151b19 100%);
+  }
+
+  .desk-keys-hint {
+    display: flex;
+    justify-content: center;
+    margin: 0;
+    min-height: 1.1rem;
+    opacity: 0.9;
+  }
+
+  .desk-keys-hint[hidden] {
+    display: none !important;
+  }
+
+  .tap-hint {
+    margin-top: 4px;
+  }
+}
+
+@media (min-width: 1200px) {
+  .app {
+    max-width: 1280px;
+    padding: 32px 48px 28px;
+  }
+
+  .piano {
+    height: min(42vh, 340px);
+    min-height: 280px;
+  }
+
+  .practice-stage {
+    gap: 22px 40px;
+  }
+}
+
+@media (orientation: landscape) and (max-height: 500px) and (max-width: 899px) {
+  .practice-stage {
     flex-direction: row;
     align-items: center;
   }
@@ -676,7 +827,7 @@ body {
     min-height: 0;
   }
 
-  .mode-toggles {
+  .practice-side {
     width: 46%;
   }
 

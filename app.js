@@ -74,10 +74,11 @@ let pianoLoadPromise = null;
 
 const state = {
   baseOctave: 3,
-  whiteCount: 15, // C3–C5 inclusive = 15 white keys
+  whiteCount: 15, // C3–C5 inclusive = 15 white keys (phone); desktop widens
   mode: null, // 'warmup' | 'harmony' | null
   sustain: false,
   audioUnlocked: false,
+  isDesktop: false,
   // warmup
   exercise: "five",
   vowel: "ah",
@@ -91,6 +92,29 @@ const state = {
   harmonyRoot: null,
   syncPlay: false,
 };
+
+/** Computer keyboard → semitone offset from the leftmost C on the piano */
+const COMPUTER_KEY_OFFSETS = {
+  a: 0,
+  w: 1,
+  s: 2,
+  e: 3,
+  d: 4,
+  f: 5,
+  t: 6,
+  g: 7,
+  y: 8,
+  h: 9,
+  u: 10,
+  j: 11,
+  k: 12,
+  o: 13,
+  l: 14,
+  p: 15,
+  ";": 16,
+  "'": 17,
+};
+const pressedComputerKeys = new Set();
 
 /** @type {Map<number, number[]>} root midi → chord midis held for sync release */
 const syncHeld = new Map();
@@ -900,6 +924,7 @@ function setMode(mode) {
 
   $("warmup-panel").hidden = next !== "warmup";
   $("harmony-panel").hidden = next !== "harmony";
+  $("app")?.classList.toggle("has-panel", next != null);
 
   if (next !== "warmup") {
     state.warmupPlaying = false;
@@ -1051,13 +1076,128 @@ function bindUI() {
   // Unlock audio on first gesture
   const unlock = () => ensureAudio();
   window.addEventListener("pointerdown", unlock, { once: false });
+  window.addEventListener("keydown", unlock, { once: false });
+
+  bindComputerKeyboard();
+  window.addEventListener("resize", () => {
+    applyDesktopLayout();
+  });
+}
+
+function midiFromComputerKey(key) {
+  const offset = COMPUTER_KEY_OFFSETS[key];
+  if (offset == null) return null;
+  const baseC = (state.baseOctave + 1) * 12;
+  const midi = baseC + offset;
+  const whites = whiteMidiList();
+  const lo = whites[0];
+  const hi = whites[whites.length - 1];
+  if (midi < lo || midi > hi + 1) return null;
+  return midi;
+}
+
+function setKeyVisual(midi, on) {
+  document.querySelector(`.piano [data-midi="${midi}"]`)?.classList.toggle("active", on);
+}
+
+function bindComputerKeyboard() {
+  window.addEventListener("keydown", (e) => {
+    if (e.metaKey || e.ctrlKey || e.altKey) return;
+    const tag = e.target?.tagName;
+    if (tag === "INPUT" || tag === "TEXTAREA") return;
+
+    if (e.code === "Space") {
+      e.preventDefault();
+      if (e.repeat) return;
+      pedalAutoEngaged = false;
+      setPedal(true);
+      return;
+    }
+    if (e.key === "ArrowLeft") {
+      e.preventDefault();
+      if (!e.repeat && state.baseOctave > 1) {
+        state.baseOctave -= 1;
+        renderPiano();
+        if (state.audioUnlocked) preloadPianoSamples();
+      }
+      return;
+    }
+    if (e.key === "ArrowRight") {
+      e.preventDefault();
+      if (!e.repeat && state.baseOctave < (state.isDesktop ? 4 : 5)) {
+        state.baseOctave += 1;
+        renderPiano();
+        if (state.audioUnlocked) preloadPianoSamples();
+      }
+      return;
+    }
+
+    const key = e.key.length === 1 ? e.key.toLowerCase() : e.key;
+    const midi = midiFromComputerKey(key);
+    if (midi == null) return;
+    e.preventDefault();
+    if (pressedComputerKeys.has(key)) return;
+    pressedComputerKeys.add(key);
+    ensureAudio();
+    setKeyVisual(midi, true);
+    onKeyDown(midi);
+  });
+
+  window.addEventListener("keyup", (e) => {
+    if (e.code === "Space") {
+      e.preventDefault();
+      pedalAutoEngaged = false;
+      setPedal(false);
+      return;
+    }
+    const key = e.key.length === 1 ? e.key.toLowerCase() : e.key;
+    if (!pressedComputerKeys.has(key)) return;
+    pressedComputerKeys.delete(key);
+    const midi = midiFromComputerKey(key);
+    if (midi == null) return;
+    setKeyVisual(midi, false);
+    onKeyUp(midi);
+  });
+}
+
+function applyDesktopLayout() {
+  const desktop = window.matchMedia("(min-width: 900px)").matches;
+  const wide = window.matchMedia("(min-width: 1200px)").matches;
+  const nextCount = wide ? 29 : desktop ? 22 : 15;
+  const wasDesktop = state.isDesktop;
+  const layoutChanged = wasDesktop !== desktop || state.whiteCount !== nextCount;
+
+  state.isDesktop = desktop;
+
+  if (layoutChanged) {
+    state.whiteCount = nextCount;
+    if (wasDesktop !== desktop) state.baseOctave = desktop ? 2 : 3;
+    if ($("piano")?.querySelector(".keys-white")) {
+      renderPiano();
+      if (state.audioUnlocked) preloadPianoSamples();
+    }
+  }
+
+  const hint = $("desk-keys-hint");
+  if (hint) {
+    if (desktop) {
+      hint.hidden = false;
+      setVectorLabel(
+        hint,
+        "Computer keys  A–L  ·  blacks W E T Y U  ·  Space pedal  ·  ← → octave",
+        "hint"
+      );
+    } else {
+      hint.hidden = true;
+    }
+  }
 }
 
 function paintStaticLabels() {
   setVectorLabel($("brand-label"), "Voix", "brand");
   setVectorLabel($("tagline-label"), "Choir practice piano", "tagline");
   setVectorLabel($("sustain-btn"), "PEDAL", "pedal");
-  setVectorLabel($("np-label"), "TAP A KEY", "npLabel");
+  setVectorLabel($("np-label"), state.isDesktop ? "PRESS A KEY" : "TAP A KEY", "npLabel");
   setVectorLabel($("np-note"), "—", "display");
   setVectorLabel($("np-solfege"), " ", "solfege");
 
@@ -1070,7 +1210,9 @@ function paintStaticLabels() {
   setVectorLabel($("warmup-close"), "Close", "close");
   setVectorBody(
     $("warmup-lead"),
-    "Tap a starting pitch, then tap it again to play the set.",
+    state.isDesktop
+      ? "Press a starting pitch, then press it again to play the set."
+      : "Tap a starting pitch, then tap it again to play the set.",
     "body",
     36
   );
@@ -1078,7 +1220,9 @@ function paintStaticLabels() {
   setVectorLabel($("warmup-title"), "Choose a root", "title");
   setVectorBody(
     $("warmup-body"),
-    "Tap a key to choose the starting pitch, then tap it again to play."
+    state.isDesktop
+      ? "Press a key to choose the starting pitch, then press it again to play."
+      : "Tap a key to choose the starting pitch, then tap it again to play."
   );
 
   setVectorLabel($("harmony-heading"), "Harmony finder", "title");
@@ -1089,7 +1233,11 @@ function paintStaticLabels() {
   setVectorLabel($("harmony-title"), "Play a root", "title");
   setVectorBody($("harmony-body"), "Highlighted keys are your harmony parts.");
 
-  setVectorLabel($("audio-hint"), "Tap anywhere to load the grand piano", "hint");
+  setVectorLabel(
+    $("audio-hint"),
+    state.isDesktop ? "Click or press a key to load the grand piano" : "Tap anywhere to load the grand piano",
+    "hint"
+  );
 
   document.querySelectorAll("[data-label]").forEach((el) => {
     const style = el.classList.contains("btn") ? "button" : "chip";
@@ -1098,9 +1246,11 @@ function paintStaticLabels() {
 }
 
 function init() {
+  applyDesktopLayout();
   paintStaticLabels();
   bindUI();
   renderPiano();
+  applyDesktopLayout();
 
   if ("serviceWorker" in navigator) {
     navigator.serviceWorker.register("./sw.js").catch(() => {
