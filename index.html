@@ -39,7 +39,7 @@
               <option value="epiano">Electric Piano</option>
             </select>
           </label>
-          <button type="button" class="icon-btn" id="sustain-btn" aria-pressed="false" aria-label="Pedal"></button>
+          <button type="button" class="icon-btn" id="sustain-btn" aria-pressed="true" aria-label="Pedal"></button>
         </div>
       </header>
 
@@ -147,9 +147,11 @@
           </button>
         </div>
         <div class="piano-frame">
-          <button type="button" class="range-cue range-cue-left" id="range-cue-left" hidden aria-label="Lower octave toward missing parts"></button>
-          <div class="piano" id="piano" role="application" aria-label="Piano keyboard" tabindex="0"></div>
-          <button type="button" class="range-cue range-cue-right" id="range-cue-right" hidden aria-label="Higher octave toward missing parts"></button>
+          <button type="button" class="range-cue range-cue-left" id="range-cue-left" hidden aria-label="Scroll left toward missing parts"></button>
+          <div class="piano-scroll" id="piano-scroll">
+            <div class="piano" id="piano" role="application" aria-label="Piano keyboard" tabindex="0"></div>
+          </div>
+          <button type="button" class="range-cue range-cue-right" id="range-cue-right" hidden aria-label="Scroll right toward missing parts"></button>
         </div>
         <p class="desk-keys-hint supporting-text" id="desk-keys-hint" hidden></p>
       </main>

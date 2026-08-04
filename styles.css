@@ -69,6 +69,7 @@ body {
 }
 
 .app {
+  --key-w: 38px;
   min-height: 100dvh;
   display: flex;
   flex-direction: column;
@@ -78,7 +79,7 @@ body {
     radial-gradient(90% 50% at 100% 40%, rgba(212, 168, 75, 0.12), transparent 45%),
     linear-gradient(180deg, var(--stage) 0%, var(--ink) 100%);
   gap: 10px;
-  max-width: 520px;
+  width: min(100%, 520px);
   margin: 0 auto;
   position: relative;
   overflow: hidden;
@@ -95,8 +96,11 @@ body {
 .top-controls {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
   gap: 8px;
   flex-shrink: 0;
+  max-width: min(100%, 280px);
 }
 
 .voice-select-wrap {
@@ -539,6 +543,25 @@ body {
   width: 100%;
 }
 
+.piano-scroll {
+  width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  border-radius: 12px 12px 8px 8px;
+  touch-action: pan-x;
+  overscroll-behavior-x: contain;
+  background: #0c100e;
+  box-shadow:
+    0 12px 40px rgba(0, 0, 0, 0.45),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+.piano-scroll::-webkit-scrollbar {
+  display: none;
+}
+
 .range-cue {
   position: absolute;
   top: 50%;
@@ -571,16 +594,15 @@ body {
 }
 
 .piano {
+  --key-w: inherit;
   position: relative;
-  height: min(34vh, 220px);
-  min-height: 160px;
-  width: 100%;
-  border-radius: 12px 12px 8px 8px;
+  height: clamp(150px, 32vh, 220px);
+  min-height: 150px;
+  width: calc(var(--white-count, 29) * var(--key-w, 38px));
+  border-radius: 0;
   overflow: hidden;
-  background: #0c100e;
-  box-shadow:
-    0 12px 40px rgba(0, 0, 0, 0.45),
-    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  background: transparent;
+  box-shadow: none;
   touch-action: none;
   user-select: none;
 }
@@ -592,7 +614,8 @@ body {
 }
 
 .key-white {
-  flex: 1;
+  flex: 0 0 var(--key-w, 38px);
+  width: var(--key-w, 38px);
   position: relative;
   border: 0;
   border-right: 1px solid #cfc7b8;
@@ -742,22 +765,110 @@ body {
 
 @media (min-width: 600px) {
   .app {
-    padding-top: 24px;
+    --key-w: 40px;
+    padding: calc(18px + var(--safe-top)) 22px calc(14px + var(--safe-bottom));
   }
 
   .piano {
-    height: 240px;
+    height: clamp(180px, 34vh, 240px);
   }
 }
 
-/* —— Desktop stage —— */
-@media (min-width: 900px) {
+/* —— Mid / tablet —— */
+@media (min-width: 700px) {
   .app {
-    max-width: 1120px;
+    --key-w: 42px;
+    width: min(100%, 1280px);
     min-height: 100vh;
+    padding: 24px 28px 20px;
+    gap: 14px;
+    overflow: visible;
+  }
+
+  .brand {
+    font-size: 2.8rem;
+  }
+
+  .top-controls {
+    max-width: none;
+  }
+
+  .icon-btn,
+  .chip,
+  .btn,
+  .text-btn,
+  .sync-toggle,
+  .nav-btn,
+  .voice-select,
+  .range-cue {
+    cursor: pointer;
+  }
+
+  .chip:hover {
+    border-color: rgba(243, 239, 230, 0.32);
+    background: rgba(255, 255, 255, 0.08);
+  }
+
+  .btn:hover:not(:disabled) {
+    filter: brightness(1.08);
+  }
+
+  .mode-toggle:hover {
+    border-color: rgba(243, 239, 230, 0.28);
+    background: linear-gradient(160deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.03));
+  }
+
+  .piano-shell {
+    margin-top: 8px;
+    gap: 12px;
+  }
+
+  .piano-scroll {
+    border-radius: 14px 14px 10px 10px;
+  }
+
+  .piano {
+    height: clamp(200px, 36vh, 280px);
+    min-height: 200px;
+  }
+
+  .piano:focus {
+    outline: none;
+  }
+
+  .piano-scroll:focus-within {
+    box-shadow:
+      0 12px 40px rgba(0, 0, 0, 0.45),
+      0 0 0 2px rgba(212, 168, 75, 0.45);
+  }
+
+  .key-white:hover:not(.active) {
+    background: linear-gradient(180deg, #fffdf8 0%, #f5f0e6 72%, #ebe3d4 100%);
+  }
+
+  .key-black:hover:not(.active) {
+    background: linear-gradient(180deg, #3a4541 0%, #252e2b 85%, #151b19 100%);
+  }
+
+  .desk-keys-hint {
+    display: flex;
+    justify-content: center;
+    margin: 0;
+    min-height: 1.1rem;
+    opacity: 0.9;
+  }
+
+  .desk-keys-hint[hidden] {
+    display: none !important;
+  }
+}
+
+/* —— Wide practice stage —— */
+@media (min-width: 1000px) {
+  .app {
+    --key-w: 44px;
     padding: 28px 36px 24px;
     gap: 16px;
-    overflow: visible;
   }
 
   .brand {
@@ -796,12 +907,6 @@ body {
 
   .mode-toggle {
     padding: 16px 18px;
-    cursor: pointer;
-  }
-
-  .mode-toggle:hover {
-    border-color: rgba(243, 239, 230, 0.28);
-    background: linear-gradient(160deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.03));
   }
 
   .feature-panel {
@@ -809,65 +914,9 @@ body {
     min-height: 0;
   }
 
-  .icon-btn,
-  .chip,
-  .btn,
-  .text-btn,
-  .sync-toggle,
-  .nav-btn,
-  .voice-select,
-  .range-cue {
-    cursor: pointer;
-  }
-
-  .chip:hover {
-    border-color: rgba(243, 239, 230, 0.32);
-    background: rgba(255, 255, 255, 0.08);
-  }
-
-  .btn:hover:not(:disabled) {
-    filter: brightness(1.08);
-  }
-
-  .piano-shell {
-    margin-top: 8px;
-    gap: 12px;
-  }
-
   .piano {
-    height: min(38vh, 300px);
-    min-height: 240px;
-    border-radius: 14px 14px 10px 10px;
-  }
-
-  .piano:focus {
-    outline: none;
-  }
-
-  .piano:focus-visible {
-    box-shadow:
-      0 12px 40px rgba(0, 0, 0, 0.45),
-      0 0 0 2px rgba(212, 168, 75, 0.45);
-  }
-
-  .key-white:hover:not(.active) {
-    background: linear-gradient(180deg, #fffdf8 0%, #f5f0e6 72%, #ebe3d4 100%);
-  }
-
-  .key-black:hover:not(.active) {
-    background: linear-gradient(180deg, #3a4541 0%, #252e2b 85%, #151b19 100%);
-  }
-
-  .desk-keys-hint {
-    display: flex;
-    justify-content: center;
-    margin: 0;
-    min-height: 1.1rem;
-    opacity: 0.9;
-  }
-
-  .desk-keys-hint[hidden] {
-    display: none !important;
+    height: clamp(220px, 38vh, 300px);
+    min-height: 220px;
   }
 
   .tap-hint {
@@ -877,13 +926,13 @@ body {
 
 @media (min-width: 1200px) {
   .app {
-    max-width: 1280px;
+    --key-w: 46px;
     padding: 32px 48px 28px;
   }
 
   .piano {
-    height: min(42vh, 340px);
-    min-height: 280px;
+    height: clamp(240px, 40vh, 340px);
+    min-height: 240px;
   }
 
   .practice-stage {
@@ -891,7 +940,7 @@ body {
   }
 }
 
-@media (orientation: landscape) and (max-height: 500px) and (max-width: 899px) {
+@media (orientation: landscape) and (max-height: 500px) and (max-width: 999px) {
   .practice-stage {
     flex-direction: row;
     align-items: center;
